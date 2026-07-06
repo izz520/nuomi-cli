@@ -1,0 +1,4 @@
+provider = "openai"
+api_url = "https://api.yasoll.tech"
+api_key = "sk-0b7f3c666976c0d79911e320d4b93b932e6347aa4bc882b1c89ac02656060102"
+model = "gpt-5.5"
