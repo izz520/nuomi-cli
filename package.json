@@ -1,0 +1,28 @@
+{
+  "name": "nuomi-cli",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsx watch main.tsx",
+    "cli": "tsx main.tsx",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.12.1",
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "ink": "^7.1.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "@types/react": "^19.2.17",
+    "tsx": "^4.22.5",
+    "typescript": "^6.0.3"
+  }
+}
