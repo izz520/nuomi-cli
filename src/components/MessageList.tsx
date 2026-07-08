@@ -1,19 +1,46 @@
-import React, { memo } from 'react'
+import React, { memo, useEffect, useState } from 'react'
 import { AssistantMessagePhase } from '../types/llm.js';
 import { Box, Text } from 'ink';
 import { symbols } from '../styles.js';
 type MessageFormat = "plain" | "markdown" | "command";
-type MessagePhase = AssistantMessagePhase | "tool_call";
+type MessagePhase = AssistantMessagePhase | "working" | "thinking" | "tool_call";
 export interface Message {
     role: "user" | "assistant" | "system";
     content: string;
-    itemId?: string;
     phase?: MessagePhase;
     format?: MessageFormat;
 };
 interface MessageProps {
     messages: Message[];
 }
+
+// Loading的效果
+const LoadingMessage = ({ label }: { label: string }) => {
+    const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+    const [frame, setFrame] = useState(0);
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setFrame(previous => previous + 1);
+        }, 80);
+
+        return () => {
+            clearInterval(timer);
+        };
+    }, []);
+
+    return (
+        <Box flexDirection="row" flexShrink={1} flexGrow={1}>
+            <Box width={2} flexShrink={0}>
+                <Text color="gray">{spinnerFrames[frame % spinnerFrames.length]}</Text>
+            </Box>
+            <Box flexShrink={1} flexGrow={1}>
+                <Text color="gray">{label}</Text>
+            </Box>
+        </Box>
+    );
+};
 
 const MessageList = ({ messages }: MessageProps) => {
     // console.log("🚀 ~ MessageList ~ messages:", messages)
@@ -29,10 +56,16 @@ const MessageList = ({ messages }: MessageProps) => {
                     marginTop={1}
                     backgroundColor={message.role === "user" ? "gray" : undefined}
                 >
-                    {message.content ? (
+                    {message.phase === "working" || message.phase === "thinking" ? (
+                        <LoadingMessage label={message.phase === "thinking" ? "Thinking" : "Working"} />
+                    ) : message.content ? (
                         <Box flexDirection="row" flexShrink={1} flexGrow={1}>
                             <Box width={2} flexShrink={0}>
-                                <Text>{message.role === "user" ? symbols.prompt : symbols.circle}</Text>
+                                <Text>
+                                    {message.role === "user"
+                                        ? symbols.prompt
+                                        : symbols.circle}
+                                </Text>
                             </Box>
                             <Box flexShrink={1} flexGrow={1}>
                                 <Text wrap="wrap">{message.content}</Text>

@@ -1,10 +1,10 @@
-# provider = "anthropic"
-# api_url = "https://api.yasoll.tech"
-# api_key = "sk-b38d22a393da6e9e0fab7f3b8e2e3e0152c607247979cdd5d887df7d093b20b3"
-# model = "claude-sonnet-5"
-
-
-provider = "openai"
+provider = "anthropic"
 api_url = "https://api.yasoll.tech"
-model = "gpt-5.5"
-api_key = "sk-0b7f3c666976c0d79911e320d4b93b932e6347aa4bc882b1c89ac02656060102"
+api_key = "sk-b38d22a393da6e9e0fab7f3b8e2e3e0152c607247979cdd5d887df7d093b20b3"
+model = "claude-sonnet-5"
+
+
+# provider = "openai"
+# api_url = "https://api.yasoll.tech"
+# model = "gpt-5.5"
+# api_key = "sk-0b7f3c666976c0d79911e320d4b93b932e6347aa4bc882b1c89ac02656060102"
