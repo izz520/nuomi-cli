@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadConfig } from "../config.js";
 import { StreamEvent } from "../types/llm.js";
+import { readFileTool } from "../tools/ReadFile.js";
 
 type StreamDebugMode = "off" | "compact" | "raw";
 
@@ -69,6 +70,8 @@ class AnthropicClient {
         appendFileSync(this.streamDebugLogPath, message, "utf8");
     }
 
+
+
     async *sendMessageStream(message: string): AsyncGenerator<StreamEvent> {
 
         let inputTokens = 0;
@@ -88,7 +91,8 @@ class AnthropicClient {
             model: this.config.model,
             max_tokens: 1024,
             messages: [{ role: "user", content: message }],
-            stream: true
+            stream: true,
+            tools: [readFileTool]
         });
 
 
@@ -126,6 +130,9 @@ class AnthropicClient {
 
                     } else if (block.type === "tool_use") {
                         // TODO：处理工具调用
+                        console.log("开始调用工具");
+                        currentToolId = block.id
+                        currentToolName = block.name
                     }
                     break;
                 }
@@ -172,6 +179,8 @@ class AnthropicClient {
                                 args = {};
                             }
                         }
+                        console.log("currentToolName", currentToolName);
+
                         yield {
                             type: "tool_call_complete",
                             toolId: currentToolId,
