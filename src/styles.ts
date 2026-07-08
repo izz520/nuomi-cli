@@ -27,6 +27,7 @@ export const symbols = {
   error: "✗",
   arrow: "→",
   dot: "·",
+  circle: "⏺",
 };
 
 export const commandIcons: Record<string, string> = {
