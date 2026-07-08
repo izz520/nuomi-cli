@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useMemo } from 'react'
+import React, { memo } from 'react'
 import { AssistantMessagePhase } from '../types/llm.js';
 import { Box, Text } from 'ink';
 import { symbols } from '../styles.js';
@@ -22,16 +22,21 @@ const MessageList = ({ messages }: MessageProps) => {
             {messages.map((message, index) => (
                 <Box
                     key={index}
-                    flexDirection="column"
+                    flexDirection="row"
+                    alignItems="flex-start"
+                    width="100%"
                     // marginBottom={message.role === "assistant" ? 1 : 0}
                     marginTop={1}
                     backgroundColor={message.role === "user" ? "gray" : undefined}
                 >
                     {message.content ? (
-                        <Box>
-                            {message.role === "user" && <Text>{symbols.prompt}{" "}</Text>}
-                            {message.role === "assistant" && <Text>{symbols.circle}{" "}</Text>}
-                            <Text>{message.content}</Text>
+                        <Box flexDirection="row" flexShrink={1} flexGrow={1}>
+                            <Box width={2} flexShrink={0}>
+                                <Text>{message.role === "user" ? symbols.prompt : symbols.circle}</Text>
+                            </Box>
+                            <Box flexShrink={1} flexGrow={1}>
+                                <Text wrap="wrap">{message.content}</Text>
+                            </Box>
                         </Box>
                     ) : null}
                 </Box>
