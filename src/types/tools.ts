@@ -18,5 +18,5 @@ export interface Tool {
     system?: boolean;
 
     schema(): Record<string, unknown>;
-    execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult>;
+    execute(args: Record<string, unknown>, ctx?: ToolContext): Promise<ToolResult>;
 }

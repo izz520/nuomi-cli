@@ -7,7 +7,6 @@ import AnthropicClient from "./client/anthorpic.js";
 import OpenAIClient from "./client/openai.js";
 import { loadConfig } from "./config.js";
 import MessageList, { Message } from "./components/MessageList.js";
-import { executeToolCall } from "./tools/index.js";
 import type { StreamEvent } from "./types/llm.js";
 
 //流式数据合并

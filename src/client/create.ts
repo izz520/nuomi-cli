@@ -18,7 +18,6 @@ const createClient = ({ provider }: CreateClientProps) => {
     env.model = provider.model;
     //将对象转变为string的系统提示词
     const systemPrompt = buildSystemPrompt(env);
-    writeLog(systemPrompt)
     switch (provider.protocol) {
         case "anthropic":
             return new AnthropicClient(provider, systemPrompt);
