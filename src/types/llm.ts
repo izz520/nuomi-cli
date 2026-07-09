@@ -1,5 +1,16 @@
 export type AssistantMessagePhase = "commentary" | "final_answer" | "unknown";
 
+export type ToolCallContext =
+    | {
+        provider: "anthropic";
+        toolUse: {
+            type: "tool_use";
+            id: string;
+            name: string;
+            input: unknown;
+        };
+    };
+
 export type StreamEvent =
     // 普通输出事件
     | {
@@ -24,6 +35,7 @@ export type StreamEvent =
         toolId: string;
         toolName: string;
         arguments: Record<string, unknown>;
+        context?: ToolCallContext;
     }
     // 流式输出结束事件
     | { type: "stream_end"; stopReason: string; usage: UsageInfo };

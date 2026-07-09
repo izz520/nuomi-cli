@@ -1,78 +1,59 @@
 import { Anthropic } from "@anthropic-ai/sdk"
-import { appendFileSync, mkdirSync } from "node:fs";
-import { resolve } from "node:path";
-import { loadConfig } from "../config.js";
+import type { MessageParam, ToolUseBlockParam } from "@anthropic-ai/sdk/resources/messages/messages.js";
 import { StreamEvent } from "../types/llm.js";
 import { readFileTool } from "../tools/ReadFile.js";
-
-type StreamDebugMode = "off" | "compact" | "raw";
+import { ProviderConfig } from "../types/provider.js";
 
 class AnthropicClient {
     private client: Anthropic;
     private config: any;
-    private streamDebugMode: StreamDebugMode;
-    private streamDebugLogPath: string;
+    private systemPrompt: string
 
-    constructor() {
-        const config = loadConfig();
-
+    constructor(provider: ProviderConfig, systemPrompt: string) {
         this.client = new Anthropic({
-            apiKey: config.apiKey,
-            baseURL: config.apiUrl
+            apiKey: provider.api_key,
+            baseURL: provider.base_url
         });
-        this.config = config;
-        this.streamDebugMode = this.getStreamDebugMode();
-        this.streamDebugLogPath = resolve(process.cwd(), "logs", "anthropic-stream.log");
-    }
-
-    private getStreamDebugMode(): StreamDebugMode {
-        const value = process.env.ANTHROPIC_STREAM_DEBUG;
-
-        if (value === "raw" || value === "1") {
-            return "raw";
-        }
-
-        if (value === "compact") {
-            return "compact";
-        }
-
-        return "off";
-    }
-
-    private logStreamEvent(event: unknown) {
-        if (this.streamDebugMode === "off") {
-            return;
-        }
-
-        mkdirSync(resolve(process.cwd(), "logs"), { recursive: true });
-
-        if (this.streamDebugMode === "raw") {
-            this.writeStreamLog(`[anthropic stream raw]\n${JSON.stringify(event, null, 2)}\n`);
-            return;
-        }
-
-        const streamEvent = event as Record<string, any>;
-        const delta = streamEvent.delta as Record<string, any> | undefined;
-        const contentBlock = streamEvent.content_block as Record<string, any> | undefined;
-
-        this.writeStreamLog(
-            `[anthropic stream] type=${streamEvent.type}` +
-            `${contentBlock?.type ? ` content_block.type=${contentBlock.type}` : ""}` +
-            `${delta?.type ? ` delta.type=${delta.type}` : ""}` +
-            `${typeof delta?.text === "string" ? ` text=${JSON.stringify(delta.text)}` : ""}` +
-            `${typeof delta?.thinking === "string" ? ` thinking=${JSON.stringify(delta.thinking)}` : ""}` +
-            `${typeof delta?.partial_json === "string" ? ` partial_json=${JSON.stringify(delta.partial_json)}` : ""}` +
-            `${streamEvent.usage ? ` usage=${JSON.stringify(streamEvent.usage)}` : ""}\n`
-        );
-    }
-
-    private writeStreamLog(message: string) {
-        appendFileSync(this.streamDebugLogPath, message, "utf8");
+        this.config = provider;
+        this.systemPrompt = systemPrompt
     }
 
 
 
     async *sendMessageStream(message: string): AsyncGenerator<StreamEvent> {
+        yield* this.streamMessages(
+            [{ role: "user", content: message }]
+        );
+    }
+
+    async *sendToolResultStream(
+        originalMessage: string,
+        toolUse: ToolUseBlockParam,
+        toolResult: string,
+        isError = false
+    ): AsyncGenerator<StreamEvent> {
+        yield* this.streamMessages(
+            [
+                { role: "user", content: originalMessage },
+                { role: "assistant", content: [toolUse] },
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "tool_result",
+                            tool_use_id: toolUse.id,
+                            content: toolResult,
+                            is_error: isError
+                        }
+                    ]
+                }
+            ],
+        );
+    }
+
+    private async *streamMessages(
+        messages: MessageParam[]
+    ): AsyncGenerator<StreamEvent> {
 
         let inputTokens = 0;
         let outputTokens = 0;
@@ -90,17 +71,21 @@ class AnthropicClient {
         const response = this.client.messages.stream({
             model: this.config.model,
             max_tokens: 1024,
-            messages: [{ role: "user", content: message }],
+            messages,
             stream: true,
-            tools: [readFileTool]
+            tools: [readFileTool],
+            system: [
+                {
+                    type: "text",
+                    text: this.systemPrompt,
+                    cache_control: { type: "ephemeral" },
+                },
+            ],
         });
 
 
-        // console.log("🚀 ~ AnthropicClient ~ sendMessageStream ~ response:", response)
-        this.logStreamStart(message);
         //循坏消费LLM返回的流式事件
         for await (const messageStreamEvent of response) {
-            this.logStreamEvent(messageStreamEvent);
             //判断事件类型，处理不同的流式事件
             switch (messageStreamEvent.type) {
                 //会话开始
@@ -129,10 +114,9 @@ class AnthropicClient {
                         // yield { type: "assistant_message_start", itemId: block.id, phase: "unknown" };
 
                     } else if (block.type === "tool_use") {
-                        // TODO：处理工具调用
-                        console.log("开始调用工具");
                         currentToolId = block.id
                         currentToolName = block.name
+                        jsonAccum = "";
                     }
                     break;
                 }
@@ -179,13 +163,22 @@ class AnthropicClient {
                                 args = {};
                             }
                         }
-                        console.log("currentToolName", currentToolName);
+                        const toolUse: ToolUseBlockParam = {
+                            type: "tool_use",
+                            id: currentToolId,
+                            name: currentToolName,
+                            input: args
+                        };
 
                         yield {
                             type: "tool_call_complete",
                             toolId: currentToolId,
                             toolName: currentToolName,
                             arguments: args,
+                            context: {
+                                provider: "anthropic",
+                                toolUse
+                            }
                         };
                         currentToolName = "";
                         currentToolId = "";
@@ -237,19 +230,6 @@ class AnthropicClient {
                 cacheCreationInputTokens,
             },
         };
-    }
-
-    private logStreamStart(message: string) {
-        if (this.streamDebugMode === "off") {
-            return;
-        }
-
-        mkdirSync(resolve(process.cwd(), "logs"), { recursive: true });
-        this.writeStreamLog(
-            `\n[anthropic stream start] ${new Date().toISOString()}\n` +
-            `[model] ${JSON.stringify(this.config.model)}\n` +
-            `[input] ${JSON.stringify(message)}\n`
-        );
     }
 }
 

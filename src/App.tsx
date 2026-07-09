@@ -7,6 +7,8 @@ import AnthropicClient from "./client/anthorpic.js";
 import OpenAIClient from "./client/openai.js";
 import { loadConfig } from "./config.js";
 import MessageList, { Message } from "./components/MessageList.js";
+import { executeToolCall } from "./tools/index.js";
+import type { StreamEvent } from "./types/llm.js";
 
 //流式数据合并
 const appendAssistantDelta = (
@@ -148,32 +150,78 @@ export default function App() {
         }
         //默认先写入一条用户消息
         setMessages(previous => addWorkingStatus(previous, prompt));
-        //开始写入Agent回复的消息
-        try {
-            for await (const event of llmClient.current.sendMessageStream(prompt)) {
-                if (event.type === "thinking_delta") {
-                    //开始输出思考的内容，或者是open的注释的内容
-                    setMessages(previous => markCurrentAssistantThinking(previous));
+        const processStreamEvent = async (event: StreamEvent): Promise<void> => {
+            if (event.type === "thinking_delta") {
+                //开始输出思考的内容，或者是open的注释的内容
+                setMessages(previous => markCurrentAssistantThinking(previous));
+            }
+
+            if (event.type === "text_delta") {
+                setMessages(previous =>
+                    appendAssistantDelta(previous, {
+                        text: event.text,
+                        phase: event.phase ?? "unknown",
+                        format: event.phase === "final_answer" ? "markdown" : "plain"
+                    })
+                );
+            } else if (event.type === "tool_call_complete") {
+                setMessages(previous => [
+                    ...removeCurrentAssistantStatus(previous),
+                    {
+                        role: "assistant",
+                        content: `${event.toolName} ${JSON.stringify(event.arguments)}`,
+                        phase: "tool_call",
+                        format: "command"
+                    }
+                ]);
+
+                let toolResult = "";
+                let isError = false;
+
+                try {
+                    toolResult = await executeToolCall(event.toolName, event.arguments);
+                } catch (error) {
+                    isError = true;
+                    toolResult = error instanceof Error ? error.message : String(error);
                 }
-                if (event.type === "text_delta") {
-                    setMessages(previous =>
-                        appendAssistantDelta(previous, {
-                            text: event.text,
-                            phase: event.phase ?? "unknown",
-                            format: event.phase === "final_answer" ? "markdown" : "plain"
-                        })
-                    );
-                } else if (event.type === "tool_call_complete") {
+
+                if (llmClient.current instanceof AnthropicClient && event.context?.provider === "anthropic") {
                     setMessages(previous => [
-                        ...removeCurrentAssistantStatus(previous),
+                        ...previous,
                         {
                             role: "assistant",
-                            content: JSON.stringify(event.arguments),
-                            phase: "tool_call",
-                            format: "command"
+                            content: "",
+                            phase: "working",
+                            format: "plain"
+                        }
+                    ]);
+
+                    for await (const followUpEvent of llmClient.current.sendToolResultStream(
+                        prompt,
+                        event.context.toolUse,
+                        toolResult,
+                        isError
+                    )) {
+                        await processStreamEvent(followUpEvent);
+                    }
+                } else {
+                    setMessages(previous => [
+                        ...previous,
+                        {
+                            role: isError ? "system" : "assistant",
+                            content: isError ? toolResult : `Tool result returned locally:\n${toolResult}`,
+                            phase: isError ? undefined : "tool_call",
+                            format: "plain"
                         }
                     ]);
                 }
+            }
+        };
+
+        //开始写入Agent回复的消息
+        try {
+            for await (const event of llmClient.current.sendMessageStream(prompt)) {
+                await processStreamEvent(event);
             }
         } catch (error) {
             setMessages(previous => [
@@ -185,7 +233,7 @@ export default function App() {
 
     const createLLMClient = useCallback(async () => {
         try {
-            const client = createClient({ provider: config.provider });
+            const client = createClient({ provider: config.providers[1] });
             // console.log("🚀 ~ App ~ client:", client)
             llmClient.current = client;
             // You can use the client here for further operations

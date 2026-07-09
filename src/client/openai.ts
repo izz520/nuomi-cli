@@ -1,66 +1,18 @@
 import OpenAI from "openai";
-import { appendFileSync, mkdirSync } from "node:fs";
-import { resolve } from "node:path";
-import { loadConfig } from "../config.js";
 import { Stream } from "openai/streaming";
 import { AssistantMessagePhase, StreamEvent } from "../types/llm.js";
-
-type StreamDebugMode = "off" | "compact" | "raw";
+import { ProviderConfig } from "../types/provider.js";
 
 class OpenAIClient {
     private client: OpenAI;
     private config: any;
-    private streamDebugMode: StreamDebugMode;
-    private streamDebugLogPath: string;
 
-    constructor() {
-        this.config = loadConfig();
+    constructor(provider: ProviderConfig, systemPrompt: string) {
+        this.config = provider;
         this.client = new OpenAI({
-            apiKey: this.config.apiKey,
-            baseURL: this.config.apiUrl
+            apiKey: provider.api_key,
+            baseURL: provider.base_url
         });
-        this.streamDebugMode = this.getStreamDebugMode();
-        this.streamDebugLogPath = resolve(process.cwd(), "logs", "openai-stream.log");
-    }
-
-    private getStreamDebugMode(): StreamDebugMode {
-        const value = process.env.OPENAI_STREAM_DEBUG;
-
-        if (value === "raw" || value === "1") {
-            return "raw";
-        }
-
-        if (value === "compact") {
-            return "compact";
-        }
-
-        return "off";
-    }
-
-    private logStreamEvent(event: OpenAI.Responses.ResponseStreamEvent) {
-        if (this.streamDebugMode === "off") {
-            return;
-        }
-
-        mkdirSync(resolve(process.cwd(), "logs"), { recursive: true });
-
-        if (this.streamDebugMode === "raw") {
-            this.writeStreamLog(`[openai stream raw]\n${JSON.stringify(event, null, 2)}\n`);
-            return;
-        }
-
-        const itemType = "item" in event ? event.item?.type : undefined;
-        const delta = "delta" in event ? event.delta : undefined;
-
-        this.writeStreamLog(
-            `[openai stream] type=${event.type}` +
-            `${itemType ? ` item.type=${itemType}` : ""}` +
-            `${typeof delta === "string" ? ` delta=${JSON.stringify(delta)}` : ""}\n`
-        );
-    }
-
-    private writeStreamLog(message: string) {
-        appendFileSync(this.streamDebugLogPath, message, "utf8");
     }
 
     private getAssistantMessagePhase(item: unknown): AssistantMessagePhase {
@@ -79,7 +31,6 @@ class OpenAIClient {
             input: message,
             stream: true
         });
-        this.logStreamStart(message);
         let currentToolName = "";
         let currentToolId = "";
         let toolArgsStream = "";
@@ -89,10 +40,7 @@ class OpenAIClient {
         let outputTokens = 0;
         let cacheReadInputTokens = 0;
         const messagePhases = new Map<string, AssistantMessagePhase>();
-        // console.log("🚀 ~ OpenAIClient ~ sendMessage ~ response:", response)
         for await (const event of response) {
-            this.logStreamEvent(event);
-
             // 当普通消息过来的时候
             if (event.type === "response.output_text.delta") {
                 yield {
@@ -189,18 +137,6 @@ class OpenAIClient {
                 };
             }
         }
-    }
-
-    private logStreamStart(message: string) {
-        if (this.streamDebugMode === "off") {
-            return;
-        }
-
-        mkdirSync(resolve(process.cwd(), "logs"), { recursive: true });
-        this.writeStreamLog(
-            `\n[openai stream start] ${new Date().toISOString()}\n` +
-            `[input] ${JSON.stringify(message)}\n`
-        );
     }
 }
 
