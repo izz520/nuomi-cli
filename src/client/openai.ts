@@ -2,8 +2,9 @@ import OpenAI from "openai";
 import { Stream } from "openai/streaming";
 import { AssistantMessagePhase, StreamEvent } from "../types/llm.js";
 import { ProviderConfig } from "../types/provider.js";
-import { IMessageManger } from "../types/messsage.js";
+import { IMessage } from "../types/messsage.js";
 import { Tool } from "../types/tools.js";
+import { MessageManger } from "../messageManger/message.js";
 
 class OpenAIClient {
     private client: OpenAI;
@@ -27,8 +28,8 @@ class OpenAIClient {
         return "unknown";
     }
 
-    async *sendMessageStream(messageManger: IMessageManger, tools: Record<string, unknown>[]): AsyncGenerator<StreamEvent> {
-        console.log("messageManger", messageManger);
+    async *sendMessageStream(messageManger: MessageManger, tools: Record<string, unknown>[]): AsyncGenerator<StreamEvent> {
+        console.log("messageManger", messageManger.getMessages());
         console.log("tools", tools);
     }
 }

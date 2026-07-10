@@ -1,15 +1,16 @@
+import { MessageManger } from "../messageManger/message.js";
 import { RegisterTools } from "../tools/register.js";
-import { IMessageManger } from "../types/messsage.js";
 import { ProviderConfig } from "../types/provider.js";
+import writeLog from "../utils/writeLog.js";
 import AnthropicClient from "./anthorpic.js";
 import createClient from "./create.js";
 import OpenAIClient from "./openai.js";
 export class Agent {
-    private messageManger: IMessageManger
+    private messageManger: MessageManger
     private provider: ProviderConfig
     private client: AnthropicClient | OpenAIClient
     private toolsRegister: RegisterTools
-    constructor(provider: ProviderConfig, messageManget: IMessageManger, toolsRegister: RegisterTools) {
+    constructor(provider: ProviderConfig, messageManget: MessageManger, toolsRegister: RegisterTools) {
         this.provider = provider
         this.client = createClient({ provider: provider })
         this.messageManger = messageManget
@@ -17,10 +18,10 @@ export class Agent {
     }
     //开始循环
     async *start() {
-        let loop = true;
         let toolSchemas = this.toolsRegister.getAllSchemas();
-        while (loop) {
-            this.client.sendMessageStream(this.messageManger, toolSchemas)
+        const result = this.client.sendMessageStream(this.messageManger, toolSchemas)
+        for await (const message of result) {
+            writeLog(message)
         }
     }
 }

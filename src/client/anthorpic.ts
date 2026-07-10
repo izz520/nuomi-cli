@@ -1,8 +1,7 @@
 import { Anthropic } from "@anthropic-ai/sdk"
 import { StreamEvent } from "../types/llm.js";
 import { ProviderConfig } from "../types/provider.js";
-import { IMessageManger } from "../types/messsage.js";
-import { Tool } from "../types/tools.js";
+import { MessageManger } from "../messageManger/message.js";
 
 class AnthropicClient {
     private client: Anthropic;
@@ -20,8 +19,8 @@ class AnthropicClient {
 
 
 
-    async *sendMessageStream(messageManger: IMessageManger, tools: Record<string, unknown>[]): AsyncGenerator<StreamEvent> {
-        console.log("messageManger", messageManger);
+    async *sendMessageStream(messageManger: MessageManger, tools: Record<string, unknown>[]): AsyncGenerator<StreamEvent> {
+        console.log("messageManger", messageManger.getMessages());
         console.log("tools", tools);
     }
 }

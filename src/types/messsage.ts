@@ -16,7 +16,7 @@ export interface ThinkingBlock {
     thinking: string;
     signature: string;
 }
-export interface IMessageManger {
+export interface IMessage {
     role: "user" | "assistant" | "system";
     content: string;
     thinkingBlocks?: ThinkingBlock[];
