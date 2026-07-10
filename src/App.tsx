@@ -6,7 +6,7 @@ import createClient from "./client/create.js";
 import AnthropicClient from "./client/anthorpic.js";
 import OpenAIClient from "./client/openai.js";
 import { loadConfig } from "./config.js";
-import MessageList, { Message } from "./components/MessageList.js";
+import MessageList, { ChatMessage } from "./components/MessageList.js";
 import type { StreamEvent } from "./types/llm.js";
 import { ProviderConfig } from "./types/provider.js";
 import Chat from "./components/Chat.js";
@@ -24,7 +24,7 @@ export default function App() {
     const toolMangerRuf = useRef(new RegisterTools())
     const messageMangerRuf = useRef(new MessageManger())
     const [agent, setAgent] = useState<Agent>()
-    const [messages, setMessages] = useState<Message[]>([]);
+    const [messages, setMessages] = useState<ChatMessage[]>([]);
     //当前使用的Provider
     const [selectProvider, setSelectProvider] = useState<ProviderConfig>(config.providers[1])
 

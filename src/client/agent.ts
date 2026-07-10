@@ -28,6 +28,7 @@ export class Agent {
         let answer = ""
         //思考
         const thinkingBlocks: { thinking: string; signature: string }[] = [];
+        let thinkingStarted = false;
         //工具
         let toolUses: ToolUseBlock[] = []
         //结束标识
@@ -39,6 +40,13 @@ export class Agent {
             switch (message.type) {
                 case "thinking_delta": {
                     //思考中的文本
+                    if (!thinkingStarted) {
+                        thinkingStarted = true;
+                        yield ({
+                            type: "thinking_start",
+                            text: ""
+                        })
+                    }
                     yield ({
                         type: "thinking_text",
                         text: message.text

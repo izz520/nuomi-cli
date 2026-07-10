@@ -7,7 +7,12 @@ import type { UsageInfo } from "./llm.js";
 import type { CompactBoundaryPayload } from "./session.js";
 
 export type AgentEvent =
+  // 回答
+  | { type: "stream_start"; text: string }
   | { type: "stream_text"; text: string }
+  | { type: "stream_complete"; text: string }
+  //思考
+  | { type: "thinking_start"; text: string }
   | { type: "thinking_text"; text: string }
   | { type: "thinking_complete"; thinking: string; signature: string }
   | { type: "tool_use"; toolName: string; toolId: string; args: Record<string, unknown> }

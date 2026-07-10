@@ -4,14 +4,14 @@ import { Box, Text } from 'ink';
 import { symbols } from '../styles.js';
 type MessageFormat = "plain" | "markdown" | "command";
 type MessagePhase = AssistantMessagePhase | "working" | "thinking" | "tool_call";
-export interface Message {
+export interface ChatMessage {
     role: "user" | "assistant" | "system";
     content: string;
     phase?: MessagePhase;
     format?: MessageFormat;
 };
 interface MessageProps {
-    messages: Message[];
+    messages: ChatMessage[];
 }
 
 // Loading的效果
@@ -49,29 +49,25 @@ const MessageList = ({ messages }: MessageProps) => {
             {messages.map((message, index) => (
                 <Box
                     key={index}
-                    flexDirection="row"
+                    flexDirection="column"
                     alignItems="flex-start"
                     width="100%"
                     // marginBottom={message.role === "assistant" ? 1 : 0}
                     marginTop={1}
                     backgroundColor={message.role === "user" ? "gray" : undefined}
                 >
-                    {message.phase === "working" || message.phase === "thinking" ? (
-                        <LoadingMessage label={message.phase === "thinking" ? "Thinking" : "Working"} />
-                    ) : message.content ? (
-                        <Box flexDirection="row" flexShrink={1} flexGrow={1}>
-                            <Box width={2} flexShrink={0}>
-                                <Text>
-                                    {message.role === "user"
-                                        ? symbols.prompt
-                                        : symbols.circle}
-                                </Text>
-                            </Box>
-                            <Box flexShrink={1} flexGrow={1}>
-                                <Text wrap="wrap">{message.content}</Text>
-                            </Box>
+                    <Box flexDirection="row" flexShrink={1} flexGrow={1}>
+                        <Box width={2} flexShrink={0}>
+                            <Text>
+                                {message.role === "user"
+                                    ? symbols.prompt
+                                    : symbols.circle}
+                            </Text>
                         </Box>
-                    ) : null}
+                        <Box flexShrink={1} flexGrow={1}>
+                            <Text wrap="wrap">{message.content}</Text>
+                        </Box>
+                    </Box>
                 </Box>
             ))}
         </Box>
