@@ -72,7 +72,7 @@ class AnthropicClient {
         //消费流失输出
         for await (const messageStreamEvent of result) {
             // console.log(messageStreamEvent.type);
-            writeLog(messageStreamEvent)
+            // writeLog(messageStreamEvent)
             switch (messageStreamEvent.type) {
                 case "message_start": {
                     // console.log(`消息开始,初始输入Token:${messageStreamEvent.message.usage.input_tokens}，输出Token:${messageStreamEvent.message.usage.output_tokens}`);

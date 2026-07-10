@@ -24,7 +24,7 @@ const Chat = ({ agent, provider, llmClient, messageManget }: IChat) => {
         if (!agent) {
             return console.log("Agent Init Fail,Please Restart Nuomi Cli");
         }
-        setMessages([{ role: "user", "content": message }])
+        setMessages(prve => [...prve, { role: "user", "content": message }])
         messageManget.addUserMessage(message)
         let isThinking = false;
         let isAnswer = false;
@@ -41,27 +41,22 @@ const Chat = ({ agent, provider, llmClient, messageManget }: IChat) => {
                 }
             }
         }
-    }, [agent, messageManget])
+    }, [agent, messageManget, messages, setMessages])
 
     const appendAssistantMessage = (content: string, phase: MessagePhase) => {
         setMessages(prev => {
-            const thinkingIndex = prev.findLastIndex(
-                item => item.role === "assistant" && item.phase === phase
-            )
-
-            if (thinkingIndex === -1) {
-                return [...prev, {
-                    role: "assistant",
-                    content: content,
-                    phase: phase
-                }]
+            const lastMessage = prev[prev.length - 1]
+            if (lastMessage.phase === phase) {
+                lastMessage.content += content
+                prev[prev.length - 1] = lastMessage
+                return prev
             }
 
-            return prev.map((item, index) =>
-                index === thinkingIndex
-                    ? { ...item, content: item.content + content }
-                    : item
-            )
+            return [...prev, {
+                role: "assistant",
+                content: content,
+                phase: phase
+            }]
         })
 
 
