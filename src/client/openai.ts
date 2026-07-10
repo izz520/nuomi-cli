@@ -5,6 +5,7 @@ import { ProviderConfig } from "../types/provider.js";
 import { IMessage } from "../types/messsage.js";
 import { Tool } from "../types/tools.js";
 import { MessageManger } from "../messageManger/message.js";
+import writeLog from "../utils/writeLog.js";
 
 class OpenAIClient {
     private client: OpenAI;
@@ -29,8 +30,7 @@ class OpenAIClient {
     }
 
     async *sendMessageStream(messageManger: MessageManger, tools: Record<string, unknown>[]): AsyncGenerator<StreamEvent> {
-        console.log("messageManger", messageManger.getMessages());
-        console.log("tools", tools);
+        writeLog("Openai:", messageManger.getMessages())
     }
 }
 

@@ -16,14 +16,14 @@ interface IChat {
     changeProvider: (provider: ProviderConfig) => void
 }
 const Chat = ({ agent, provider, llmClient, messageManget }: IChat) => {
-    writeLog("Chat - Agent", agent)
+    // writeLog("Chat - Agent", agent)
     const [messages, setMessages] = useState([])
-    const handleSubmit = useCallback((message: string) => {
+    const handleSubmit = useCallback(async (message: string) => {
         if (!agent) {
             return console.log("Agent Init Fail,Please Restart Nuomi Cli");
         }
         messageManget.addUserMessage(message)
-        agent.start()
+        await agent.start()
     }, [agent, messageManget])
     return (
         <Box>

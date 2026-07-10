@@ -17,8 +17,10 @@ export class Agent {
         this.toolsRegister = toolsRegister
     }
     //开始循环
-    async *start() {
+    async start(): Promise<void> {
         let toolSchemas = this.toolsRegister.getAllSchemas();
+        console.log("进入loop");
+
         const result = this.client.sendMessageStream(this.messageManger, toolSchemas)
         for await (const message of result) {
             writeLog(message)

@@ -53,15 +53,15 @@ export default function App() {
 
 
     const initAgent = useCallback(async () => {
-        writeLog("Start Init Agent");
+        // writeLog("Start Init Agent");
         //2.添加支持的工具
         toolMangerRuf.current.register(new ReadFile())
-        writeLog("Tool Manger", toolMangerRuf.current);
-        writeLog("Message Manger", messageMangerRuf.current);
+        // writeLog("Tool Manger", toolMangerRuf.current);
+        // writeLog("Message Manger", messageMangerRuf.current);
         //3.创建Agent
         const agent = new Agent(selectProvider, messageMangerRuf.current, toolMangerRuf.current)
         setAgent(agent)
-        writeLog("Agent", agent);
+        // writeLog("Agent", agent);
     }, [selectProvider]);
 
     useEffect(() => {
