@@ -23,7 +23,7 @@ export class Agent {
     //开始循环
     async *startLoop(): AsyncGenerator<AgentEvent> {
         let toolSchemas = this.toolsRegister.getAllSchemas();
-        console.log("进入loop");
+        // console.log("进入loop");
         //回答的内容
         let answer = ""
         //思考

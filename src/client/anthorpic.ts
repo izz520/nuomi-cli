@@ -21,7 +21,7 @@ class AnthropicClient {
 
 
     async *sendMessageStream(messageManger: MessageManger, tools: Record<string, unknown>[]): AsyncGenerator<StreamEvent> {
-        console.log("发送消息给Agent");
+        // console.log("发送消息给Agent");
 
         //拿到全部消息
         const message = messageManger.getMessages()
@@ -75,7 +75,7 @@ class AnthropicClient {
             writeLog(messageStreamEvent)
             switch (messageStreamEvent.type) {
                 case "message_start": {
-                    console.log(`消息开始,初始输入Token:${messageStreamEvent.message.usage.input_tokens}，输出Token:${messageStreamEvent.message.usage.output_tokens}`);
+                    // console.log(`消息开始,初始输入Token:${messageStreamEvent.message.usage.input_tokens}，输出Token:${messageStreamEvent.message.usage.output_tokens}`);
                     break;
                 }
                 case "content_block_start": {
@@ -85,19 +85,19 @@ class AnthropicClient {
                         isThinking = true
                         thinkingStr = ""
                         thinkingSig = ""
-                        console.log("开始思考的内容");
+                        // console.log("开始思考的内容");
                     }
                     if (block.type === "text") {
                         isAnswer = true
                         answer = ""
-                        console.log("开始回答");
+                        // console.log("开始回答");
                     }
                     if (block.type === "tool_use") {
                         isUseTools = true
                         tool.toolId = block.id
                         tool.toolName = block.name
                         tool.toolJson = ""
-                        console.log("开始申请调用工具");
+                        // console.log("开始申请调用工具");
                     }
                     break;
 
@@ -194,7 +194,7 @@ class AnthropicClient {
                     break;
                 }
                 case "message_stop": {
-                    console.log("对话结束");
+                    // console.log("对话结束");
                     break;
                 }
             }
