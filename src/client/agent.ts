@@ -17,7 +17,7 @@ export class Agent {
         this.toolsRegister = toolsRegister
     }
     //开始循环
-    async start(): Promise<void> {
+    async startLoop(): Promise<void> {
         let toolSchemas = this.toolsRegister.getAllSchemas();
         console.log("进入loop");
 

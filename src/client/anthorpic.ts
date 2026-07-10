@@ -62,6 +62,13 @@ class AnthropicClient {
             toolName: "",
             toolJson: ""
         }
+        //结束类型
+        let stopReason = "end_turn";
+        //消耗token
+        let inputTokens = 0;
+        let outputTokens = 0;
+        let cacheReadInputTokens = 0;
+        let cacheCreationInputTokens = 0;
         //消费流失输出
         for await (const messageStreamEvent of result) {
             // console.log(messageStreamEvent.type);
@@ -74,22 +81,23 @@ class AnthropicClient {
                 case "content_block_start": {
                     const block = messageStreamEvent.content_block;
                     if (block.type === "thinking") {
+                        //开始思考
                         isThinking = true
                         thinkingStr = ""
                         thinkingSig = ""
-                        console.log("接下来输出的是思考的内容");
+                        console.log("开始思考的内容");
                     }
                     if (block.type === "text") {
                         isAnswer = true
                         answer = ""
-                        console.log("接下来是回答的内容");
+                        console.log("开始回答");
                     }
                     if (block.type === "tool_use") {
                         isUseTools = true
                         tool.toolId = block.id
                         tool.toolName = block.name
                         tool.toolJson = ""
-                        console.log("接下来是工具调用");
+                        console.log("开始申请调用工具");
                     }
                     break;
 
@@ -97,36 +105,81 @@ class AnthropicClient {
                 case "content_block_delta": {
                     const delta = messageStreamEvent.delta;
                     if (delta.type === "thinking_delta") {
+                        //思考的内容
                         thinkingStr += delta.thinking
+                        yield ({
+                            type: "thinking_delta",
+                            text: delta.thinking
+                        })
                         // console.log("思考：", thinkingStr);
                     }
                     if (delta.type === "signature_delta") {
-                        console.log("思考文案的签名", delta.signature);
+                        //思考之后的签名
+                        // console.log("思考文案的签名", delta.signature);
                         thinkingSig = delta.signature
                     }
                     if (delta.type === "text_delta") {
+                        //回答的内容
                         answer += delta.text
+                        yield ({
+                            type: "text_delta",
+                            text: delta.text
+                        })
                         // console.log("回答：", answer);
                     }
                     if (delta.type === "input_json_delta") {
+                        //数据工具参数
                         tool.toolJson += delta.partial_json
                         // console.log("工具调用：", tool.toolJson);
+                        yield ({
+                            type: "tool_call_delta",
+                            text: delta.partial_json
+                        });
                     }
                     break;
                 }
                 case "content_block_stop": {
                     if (isThinking) {
+                        //思考结束
                         isThinking = false
                         console.log("思考内容:", thinkingStr);
-
+                        yield ({
+                            type: "thinking_complete",
+                            thinking: thinkingStr,
+                            signature: thinkingSig,
+                        })
+                        thinkingSig = ""
+                        thinkingStr = ""
                     }
                     if (isAnswer) {
+                        //回答结束
                         isAnswer = false
-                        console.log("回答:", answer);
+                        // console.log("回答:", answer);
+
                     }
                     if (isUseTools) {
+                        //工具调用申请的输出完成
                         isUseTools = false
                         console.log(`工具调用:${tool.toolName}-${tool.toolJson}`);
+                        let args: Record<string, unknown> = {};
+                        if (tool.toolJson) {
+                            try {
+                                args = JSON.parse(tool.toolJson);
+                            } catch {
+                                args = {};
+                            }
+                        }
+                        yield {
+                            type: "tool_call_complete",
+                            toolId: tool.toolId,
+                            toolName: tool.toolName,
+                            arguments: args,
+                        };
+                        tool = {
+                            toolId: "",
+                            toolName: "",
+                            toolJson: ""
+                        }
 
                     }
                     break;
@@ -134,6 +187,10 @@ class AnthropicClient {
                 case "message_delta": {
                     const usage = messageStreamEvent.usage
                     console.log(`本次对话结束，本轮消耗的输入Token:${usage.input_tokens},输出Token:${usage.output_tokens}`);
+                    inputTokens = usage.input_tokens ?? 0
+                    outputTokens = usage.output_tokens ?? 0
+                    cacheCreationInputTokens = usage.cache_creation_input_tokens ?? 0
+                    cacheReadInputTokens = usage.cache_read_input_tokens ?? 0
                     break;
                 }
                 case "message_stop": {
@@ -142,6 +199,16 @@ class AnthropicClient {
                 }
             }
         }
+        yield {
+            type: "stream_end",
+            stopReason,
+            usage: {
+                inputTokens,
+                outputTokens,
+                cacheReadInputTokens,
+                cacheCreationInputTokens,
+            },
+        };
     }
 }
 

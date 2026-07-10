@@ -12,7 +12,7 @@ export type ToolCallContext =
     };
 
 export type StreamEvent =
-    // 普通输出事件
+    // 普通输出事件 ✅
     | {
         type: "text_delta";
         text: string;
@@ -21,15 +21,15 @@ export type StreamEvent =
         contentIndex?: number;
         phase?: AssistantMessagePhase;
     }
-    //思考过程的事件
+    //思考过程的事件 ✅
     | { type: "thinking_delta"; text: string }
-    // 思考完成事件
+    // 思考完成事件 ✅
     | { type: "thinking_complete"; thinking: string; signature: string }
     // 工具调用开始
     | { type: "tool_call_start"; toolName: string; toolId: string }
-    // 累积工具参数
+    // 累积工具参数 ✅
     | { type: "tool_call_delta"; text: string }
-    // 工具调用完成
+    // 工具调用完成 ✅
     | {
         type: "tool_call_complete";
         toolId: string;
@@ -37,7 +37,7 @@ export type StreamEvent =
         arguments: Record<string, unknown>;
         context?: ToolCallContext;
     }
-    // 流式输出结束事件
+    // 流式输出结束事件 ✅
     | { type: "stream_end"; stopReason: string; usage: UsageInfo };
 
 export interface UsageInfo {

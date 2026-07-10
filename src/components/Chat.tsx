@@ -23,7 +23,7 @@ const Chat = ({ agent, provider, llmClient, messageManget }: IChat) => {
             return console.log("Agent Init Fail,Please Restart Nuomi Cli");
         }
         messageManget.addUserMessage(message)
-        await agent.start()
+        await agent.startLoop()
     }, [agent, messageManget])
     return (
         <Box>
