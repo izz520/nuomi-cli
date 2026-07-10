@@ -53,4 +53,7 @@ export class MessageManger {
     getMessages(): IMessage[] {
         return [...this.history];
     }
+    len(): number {
+        return this.history.length;
+    }
 }
