@@ -1,9 +1,10 @@
 import React, { memo, useEffect, useState } from 'react'
-import { AssistantMessagePhase } from '../types/llm.js';
+import { AssistantMessagePhase } from '../../types/llm.js';
 import { Box, Text } from 'ink';
 import { Marked, type MarkedExtension } from 'marked';
 import { markedTerminal } from 'marked-terminal';
-import { symbols } from '../styles.js';
+import { symbols } from '../../styles.js';
+import LoadingMessage from './LoaidngMessage.js';
 
 const markdownParser = new Marked(
     markedTerminal({
@@ -13,7 +14,7 @@ const markdownParser = new Marked(
 );
 
 type MessageFormat = "plain" | "markdown" | "command";
-type MessagePhase = AssistantMessagePhase | "working" | "thinking" | "tool_call";
+export type MessagePhase = AssistantMessagePhase | "working" | "thinking" | "tool_call";
 export interface ChatMessage {
     role: "user" | "assistant" | "system";
     content: string;
@@ -24,33 +25,6 @@ interface MessageProps {
     messages: ChatMessage[];
 }
 
-// Loading的效果
-const LoadingMessage = ({ label }: { label?: string }) => {
-    const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-
-    const [frame, setFrame] = useState(0);
-
-    useEffect(() => {
-        const timer = setInterval(() => {
-            setFrame(previous => previous + 1);
-        }, 80);
-
-        return () => {
-            clearInterval(timer);
-        };
-    }, []);
-
-    return (
-        <Box flexDirection="row" flexShrink={1} flexGrow={1}>
-            <Box width={2} flexShrink={0}>
-                <Text color="gray">{spinnerFrames[frame % spinnerFrames.length]}</Text>
-            </Box>
-            <Box flexShrink={1} flexGrow={1}>
-                <Text color="gray">{label}</Text>
-            </Box>
-        </Box>
-    );
-};
 
 const MessageList = ({ messages }: MessageProps) => {
     // console.log("🚀 ~ MessageList ~ messages:", messages)
@@ -61,6 +35,16 @@ const MessageList = ({ messages }: MessageProps) => {
                 {messages.map((message, index) => {
                     const content = message.content.replace(/^\r?\n/, "");
                     const renderedContent = (markdownParser.parse(content) as string).trimEnd();
+                    //展示消息签名的图标
+                    const getIconType = () => {
+                        if (message.role === "user") {
+                            return symbols.prompt
+                        } else {
+                            if (message.phase === "thinking") return symbols.thinking
+                            if (message.phase === "tool_call") return symbols.tool
+                            return symbols.circle
+                        }
+                    }
                     return (
                         <Box
                             key={index}
@@ -73,21 +57,19 @@ const MessageList = ({ messages }: MessageProps) => {
                         >
                             <Box flexDirection="row" flexShrink={1} flexGrow={1}>
                                 <Box width={2} flexShrink={0}>
-                                    <Text>
-                                        {message.role === "user"
-                                            ? symbols.prompt
-                                            : symbols.circle}
+                                    <Text dimColor={message.phase === "thinking" || message.phase === "tool_call"}>
+                                        {getIconType()}
                                     </Text>
                                 </Box>
                                 <Box flexShrink={1} flexGrow={1}>
-                                    <Text>{renderedContent}</Text>
+                                    <Text dimColor={message.phase === "thinking"}>{renderedContent}</Text>
                                 </Box>
                             </Box>
                         </Box>
                     );
                 })}
             </Box>
-            {isShowLoading && <LoadingMessage label='Working' />}
+            {isShowLoading && <LoadingMessage />}
         </>
 
     )

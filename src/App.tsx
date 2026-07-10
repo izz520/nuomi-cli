@@ -6,7 +6,7 @@ import createClient from "./client/create.js";
 import AnthropicClient from "./client/anthorpic.js";
 import OpenAIClient from "./client/openai.js";
 import { loadConfig } from "./config.js";
-import MessageList, { ChatMessage } from "./components/MessageList.js";
+import MessageList, { ChatMessage } from "./components/MessageList/index.js";
 import type { StreamEvent } from "./types/llm.js";
 import { ProviderConfig } from "./types/provider.js";
 import Chat from "./components/Chat.js";
