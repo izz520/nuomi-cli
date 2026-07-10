@@ -42,6 +42,7 @@ class AnthropicClient {
         const params = {
             model: this.config.model,
             max_tokens: 1024,
+            system: this.systemPrompt,
             messages: message,
             stream: true,
             tools: formatTools

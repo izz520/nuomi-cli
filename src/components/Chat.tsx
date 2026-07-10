@@ -39,6 +39,9 @@ const Chat = ({ agent, provider, llmClient, messageManget }: IChat) => {
                     appendAssistantMessage(event.text, "final_answer")
                     break
                 }
+                case "tool_use": {
+                    appendAssistantMessage(`${event.toolName} ${JSON.stringify(event.args)}`, "tool_call")
+                }
             }
         }
     }, [agent, messageManget, messages, setMessages])
