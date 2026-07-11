@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useRef, useState } from 'react'
+import React, { memo, useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { ProviderConfig } from '../types/provider.js'
 import { Box } from 'ink'
 import MessageList, { ChatMessage, MessagePhase } from './MessageList/index.js'
@@ -16,61 +16,89 @@ interface IChat {
     workDir: string
     changeProvider: (provider: ProviderConfig) => void
 }
+
+type MessageAction =
+    | { type: "append_user"; content: string }
+    | { type: "append_assistant"; content: string; phase: MessagePhase; merge: boolean };
+
+const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMessage[] => {
+    switch (action.type) {
+        case "append_user":
+            return [...messages, { role: "user", content: action.content }];
+        case "append_assistant": {
+            const lastMessage = messages.at(-1);
+            if (
+                action.merge
+                && lastMessage?.role === "assistant"
+                && lastMessage.phase === action.phase
+            ) {
+                return [
+                    ...messages.slice(0, -1),
+                    {
+                        ...lastMessage,
+                        content: lastMessage.content + action.content
+                    }
+                ];
+            }
+
+            return [
+                ...messages,
+                {
+                    role: "assistant",
+                    content: action.content,
+                    phase: action.phase
+                }
+            ];
+        }
+    }
+};
+
 const Chat = ({ llmClient, workDir }: IChat) => {
     // writeLog("Chat - Agent", agent)
     const [agent, setAgent] = useState<Agent>()
     const messageMangerRuf = useRef(new MessageManger())
     const toolMangerRuf = useRef(new ToolsManger())
-    const [messages, setMessages] = useState<ChatMessage[]>([])
+    const [messages, dispatchMessages] = useReducer(messagesReducer, [])
 
     const handleSubmit = useCallback(async (message: string) => {
         if (!agent) {
             return console.log("Agent Init Fail,Please Restart Nuomi Cli");
         }
-        setMessages(prve => [...prve, { role: "user", "content": message }])
+        dispatchMessages({ type: "append_user", content: message })
         messageMangerRuf.current.addUserMessage(message)
-        let isThinking = false;
-        let isAnswer = false;
         const loopResult = agent.startLoop()
         for await (const event of loopResult) {
             switch (event.type) {
                 case "thinking_text": {
-                    appendAssistantMessage(event.text, "thinking")
+                    dispatchMessages({
+                        type: "append_assistant",
+                        content: event.text,
+                        phase: "thinking",
+                        merge: true
+                    })
                     break;
                 }
                 case "stream_text": {
-                    appendAssistantMessage(event.text, "final_answer")
+                    dispatchMessages({
+                        type: "append_assistant",
+                        content: event.text,
+                        phase: "final_answer",
+                        merge: true
+                    })
                     break
                 }
                 case "tool_use": {
-                    appendAssistantMessage(`${event.toolName} ${JSON.stringify(event.args)}`, "tool_call")
+                    dispatchMessages({
+                        type: "append_assistant",
+                        content: `${event.toolName} ${JSON.stringify(event.args)}`,
+                        phase: "tool_call",
+                        merge: false
+                    })
+                    break
                 }
             }
         }
-    }, [agent, messages, setMessages])
-
-    const appendAssistantMessage = (content: string, phase: MessagePhase) => {
-        setMessages(prev => {
-            const lastMessage = prev[prev.length - 1]
-            if (lastMessage?.role === "assistant" && lastMessage.phase === phase) {
-                return [
-                    ...prev.slice(0, -1),
-                    {
-                        ...lastMessage,
-                        content: lastMessage.content + content
-                    }
-                ]
-            }
-
-            return [...prev, {
-                role: "assistant",
-                content: content,
-                phase: phase
-            }]
-        })
-
-
-    }
+    }, [agent])
 
     const initAgent = useCallback(() => {
         toolMangerRuf.current.register(new ReadFileTool())
@@ -78,11 +106,11 @@ const Chat = ({ llmClient, workDir }: IChat) => {
             const agent = new Agent(llmClient, messageMangerRuf.current, toolMangerRuf.current, workDir)
             setAgent(agent)
         }
-    }, [llmClient])
+    }, [llmClient, workDir])
 
     useEffect(() => {
         initAgent()
-    }, [llmClient])
+    }, [initAgent])
     return (
         <Box flexDirection="column">
             <MessageList messages={messages} />
