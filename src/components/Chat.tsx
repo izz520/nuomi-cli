@@ -52,10 +52,14 @@ const Chat = ({ llmClient, workDir }: IChat) => {
     const appendAssistantMessage = (content: string, phase: MessagePhase) => {
         setMessages(prev => {
             const lastMessage = prev[prev.length - 1]
-            if (lastMessage.phase === phase) {
-                lastMessage.content += content
-                prev[prev.length - 1] = lastMessage
-                return prev
+            if (lastMessage?.role === "assistant" && lastMessage.phase === phase) {
+                return [
+                    ...prev.slice(0, -1),
+                    {
+                        ...lastMessage,
+                        content: lastMessage.content + content
+                    }
+                ]
             }
 
             return [...prev, {
