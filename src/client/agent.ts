@@ -1,5 +1,5 @@
 import { MessageManger } from "../messageManger/message.js";
-import { RegisterTools } from "../tools/register.js";
+import { ToolsManger } from "../tools/register.js";
 import { AgentEvent } from "../types/agent.js";
 import { UsageAnchor } from "../types/compact.js";
 import { ToolUseBlock } from "../types/messsage.js";
@@ -8,21 +8,20 @@ import writeLog from "../utils/writeLog.js";
 import AnthropicClient from "./anthorpic.js";
 import createClient from "./create.js";
 import OpenAIClient from "./openai.js";
+import { ToolExecutManget } from "./tool-execut-manget.js";
 export class Agent {
     private messageManger: MessageManger
-    private provider: ProviderConfig
     private client: AnthropicClient | OpenAIClient
-    private toolsRegister: RegisterTools
+    private toolManger: ToolsManger
     private usageAnchor: UsageAnchor | null = null;
-    constructor(provider: ProviderConfig, messageManget: MessageManger, toolsRegister: RegisterTools) {
-        this.provider = provider
-        this.client = createClient({ provider: provider })
-        this.messageManger = messageManget
-        this.toolsRegister = toolsRegister
+    constructor(client: AnthropicClient | OpenAIClient, messageManger: MessageManger, toolManger: ToolsManger) {
+        this.client = client
+        this.messageManger = messageManger
+        this.toolManger = toolManger
     }
     //开始循环
     async *startLoop(): AsyncGenerator<AgentEvent> {
-        let toolSchemas = this.toolsRegister.getAllSchemas();
+        let toolSchemas = this.toolManger.getAllSchemas();
         // console.log("进入loop");
         //回答的内容
         let answer = ""
@@ -117,8 +116,8 @@ export class Agent {
             //进行工具分类和并发
             const categoaryTools = this.categoryTools(toolUses)
             //并发
-            for (const tool of categoaryTools) {
-
+            for (const cateTool of categoaryTools) {
+                this.batchExecute(cateTool.tools, cateTool.concurrent)
             }
         }
 
@@ -129,7 +128,7 @@ export class Agent {
         //循环全部工具
         for (const tool of tools) {
             //获取工具名
-            const toolRegister = this.toolsRegister.get(tool.toolName)
+            const toolRegister = this.toolManger.get(tool.toolName)
             //判断工具名称
             const concurrent = (toolRegister?.category ?? "command") === "read"
             if (concurrent && categoryTools.length > 0 && categoryTools[categoryTools.length - 1].concurrent) {
@@ -142,5 +141,9 @@ export class Agent {
             }
         }
         return categoryTools
+    }
+    // 工具批量调用
+    private batchExecute(tools: ToolUseBlock[], concurrent: boolean) {
+        // const TaskManger = new ToolExecutManget(this.toolManger,{})
     }
 }

@@ -1,80 +1,42 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Box, useApp } from "ink";
-import PromptInput from "./components/PromptInput.js";
+import React, { useCallback, useEffect, useState } from "react";
+import { Box } from "ink";
 import PlatformHeader from "./components/PlatformHeader.js";
 import createClient from "./client/create.js";
 import AnthropicClient from "./client/anthorpic.js";
 import OpenAIClient from "./client/openai.js";
 import { loadConfig } from "./config.js";
-import MessageList, { ChatMessage } from "./components/MessageList/index.js";
-import type { StreamEvent } from "./types/llm.js";
 import { ProviderConfig } from "./types/provider.js";
 import Chat from "./components/Chat.js";
-import { Agent } from "./client/agent.js";
-import { RegisterTools } from "./tools/register.js";
-import { ReadFileTool } from "./tools/read-file2.js";
-import { MessageManger } from "./messageManger/message.js";
-import writeLog from "./utils/writeLog.js";
+import { buildSystemPrompt, detectEnvironment } from "./prompt/builder.js";
 
 
 export default function App() {
     const config = loadConfig();
     const [llmClient, setLLMClient] = useState<AnthropicClient | OpenAIClient>();
-    const { exit } = useApp();
-    const toolMangerRuf = useRef(new RegisterTools())
-    const messageMangerRuf = useRef(new MessageManger())
-    const [agent, setAgent] = useState<Agent>()
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
     //当前使用的Provider
     const [selectProvider, setSelectProvider] = useState<ProviderConfig>(config.providers[1])
 
-    const handleSystemTools = useCallback((prompt: string) => {
-        if (prompt === "q" || prompt === "/exit") {
-            exit();
-            return true;
-        }
-
-        if (prompt === "/clear") {
-            setMessages([]);
-            return true;
-        }
-
-        if (prompt === "/help") {
-            setMessages(previous => [
-                ...previous,
-                { role: "user", content: prompt },
-                { role: "assistant", content: "Commands: /help, /clear, /exit, q" }
-            ]);
-            return true;
-        }
-
-        return false;
-    }, [exit])
-
-
-    const initAgent = useCallback(async () => {
-        // writeLog("Start Init Agent");
-        //2.添加支持的工具
-        toolMangerRuf.current.register(new ReadFileTool())
-        // writeLog("Tool Manger", toolMangerRuf.current);
-        // writeLog("Message Manger", messageMangerRuf.current);
-        //3.创建Agent
-        const agent = new Agent(selectProvider, messageMangerRuf.current, toolMangerRuf.current)
-        setAgent(agent)
-        // writeLog("Agent", agent);
-    }, [selectProvider]);
+    const initClient = useCallback(() => {
+        const workDir = process.cwd();
+        //读取系统信息和git仓库信息
+        const env = detectEnvironment(workDir);
+        // console.log("🚀 ~ createClient ~ env:", env)
+        //设置env的model为provider的model
+        env.model = selectProvider.model;
+        //将对象转变为string的系统提示词
+        const systemPrompt = buildSystemPrompt(env);
+        const client = createClient({ provider: selectProvider, systemPrompt: systemPrompt })
+        setLLMClient(client)
+    }, [selectProvider])
 
     useEffect(() => {
-        initAgent();
-    }, []);
+        initClient()
+    }, [selectProvider])
 
     return (
         <Box flexDirection="column">
             <PlatformHeader provider={selectProvider} />
             <Chat
-                agent={agent}
-                messageManget={messageMangerRuf.current}
-                provider={selectProvider}
                 llmClient={llmClient}
                 changeProvider={setSelectProvider}
             />

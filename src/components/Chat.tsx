@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useState } from 'react'
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { ProviderConfig } from '../types/provider.js'
 import { Box } from 'ink'
 import MessageList, { ChatMessage, MessagePhase } from './MessageList/index.js'
@@ -9,15 +9,16 @@ import { Agent } from '../client/agent.js'
 import { MessageManger } from '../messageManger/message.js'
 import writeLog from '../utils/writeLog.js'
 import { AgentEvent } from '../types/agent.js'
+import { ToolsManger } from '../tools/register.js'
 interface IChat {
-    agent: Agent | undefined
-    messageManget: MessageManger
-    provider: ProviderConfig
     llmClient: AnthropicClient | OpenAIClient | undefined
     changeProvider: (provider: ProviderConfig) => void
 }
-const Chat = ({ agent, provider, llmClient, messageManget }: IChat) => {
+const Chat = ({ llmClient }: IChat) => {
     // writeLog("Chat - Agent", agent)
+    const [agent, setAgent] = useState<Agent>()
+    const messageMangerRuf = useRef(new MessageManger())
+    const toolMangerRuf = useRef(new ToolsManger())
     const [messages, setMessages] = useState<ChatMessage[]>([])
 
     const handleSubmit = useCallback(async (message: string) => {
@@ -25,7 +26,7 @@ const Chat = ({ agent, provider, llmClient, messageManget }: IChat) => {
             return console.log("Agent Init Fail,Please Restart Nuomi Cli");
         }
         setMessages(prve => [...prve, { role: "user", "content": message }])
-        messageManget.addUserMessage(message)
+        messageMangerRuf.current.addUserMessage(message)
         let isThinking = false;
         let isAnswer = false;
         const loopResult = agent.startLoop()
@@ -44,7 +45,7 @@ const Chat = ({ agent, provider, llmClient, messageManget }: IChat) => {
                 }
             }
         }
-    }, [agent, messageManget, messages, setMessages])
+    }, [agent, messages, setMessages])
 
     const appendAssistantMessage = (content: string, phase: MessagePhase) => {
         setMessages(prev => {
@@ -64,6 +65,17 @@ const Chat = ({ agent, provider, llmClient, messageManget }: IChat) => {
 
 
     }
+
+    const initAgent = useCallback(() => {
+        if (llmClient) {
+            const agent = new Agent(llmClient, messageMangerRuf.current, toolMangerRuf.current)
+            setAgent(agent)
+        }
+    }, [llmClient])
+
+    useEffect(() => {
+        initAgent()
+    }, [llmClient])
     return (
         <Box flexDirection="column">
             <MessageList messages={messages} />

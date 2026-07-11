@@ -7,22 +7,9 @@ import writeLog from '../utils/writeLog.js';
 
 interface CreateClientProps {
     provider: ProviderConfig;
+    systemPrompt: string
 }
-const createClient = ({ provider }: CreateClientProps) => {
-    // 构建系统提示词
-    //获取启动时的目录地址
-    const workDir = process.cwd();
-    //读取系统信息和git仓库信息
-    const env = detectEnvironment(workDir);
-    // console.log("🚀 ~ createClient ~ env:", env)
-    //设置env的model为provider的model
-    env.model = provider.model;
-    //将对象转变为string的系统提示词
-    const systemPrompt = buildSystemPrompt(env);
-    // console.log("process.cwd():", process.cwd());
-    // console.log("workDir:", workDir);
-    // console.log("systemPrompt:", systemPrompt);
-    // console.log("🚀 ~ createClient ~ systemPrompt:", systemPrompt)
+const createClient = ({ provider, systemPrompt }: CreateClientProps) => {
     switch (provider.protocol) {
         case "anthropic":
             return new AnthropicClient(provider, systemPrompt);
