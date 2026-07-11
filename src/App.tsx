@@ -12,7 +12,7 @@ import { ProviderConfig } from "./types/provider.js";
 import Chat from "./components/Chat.js";
 import { Agent } from "./client/agent.js";
 import { RegisterTools } from "./tools/register.js";
-import { ReadFile } from "./tools/read-file.js";
+import { ReadFileTool } from "./tools/read-file2.js";
 import { MessageManger } from "./messageManger/message.js";
 import writeLog from "./utils/writeLog.js";
 
@@ -55,7 +55,7 @@ export default function App() {
     const initAgent = useCallback(async () => {
         // writeLog("Start Init Agent");
         //2.添加支持的工具
-        toolMangerRuf.current.register(new ReadFile())
+        toolMangerRuf.current.register(new ReadFileTool())
         // writeLog("Tool Manger", toolMangerRuf.current);
         // writeLog("Message Manger", messageMangerRuf.current);
         //3.创建Agent

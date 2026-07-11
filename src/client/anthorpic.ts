@@ -47,6 +47,7 @@ class AnthropicClient {
             stream: true,
             tools: formatTools
         }
+        writeLog(params)
         //发送消息
         const result = this.client.messages.stream(params)
         //思考
