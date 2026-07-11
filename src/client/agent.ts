@@ -14,10 +14,12 @@ export class Agent {
     private client: AnthropicClient | OpenAIClient
     private toolManger: ToolsManger
     private usageAnchor: UsageAnchor | null = null;
-    constructor(client: AnthropicClient | OpenAIClient, messageManger: MessageManger, toolManger: ToolsManger) {
+    private workDir: string;
+    constructor(client: AnthropicClient | OpenAIClient, messageManger: MessageManger, toolManger: ToolsManger, workDir: string) {
         this.client = client
         this.messageManger = messageManger
         this.toolManger = toolManger
+        this.workDir = workDir
     }
     //开始循环
     async *startLoop(): AsyncGenerator<AgentEvent> {

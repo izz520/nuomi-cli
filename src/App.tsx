@@ -9,7 +9,7 @@ import { ProviderConfig } from "./types/provider.js";
 import Chat from "./components/Chat.js";
 import { buildSystemPrompt, detectEnvironment } from "./prompt/builder.js";
 
-
+const workDir = process.cwd()
 export default function App() {
     const config = loadConfig();
     const [llmClient, setLLMClient] = useState<AnthropicClient | OpenAIClient>();
@@ -17,7 +17,6 @@ export default function App() {
     const [selectProvider, setSelectProvider] = useState<ProviderConfig>(config.providers[1])
 
     const initClient = useCallback(() => {
-        const workDir = process.cwd();
         //读取系统信息和git仓库信息
         const env = detectEnvironment(workDir);
         // console.log("🚀 ~ createClient ~ env:", env)
@@ -27,7 +26,7 @@ export default function App() {
         const systemPrompt = buildSystemPrompt(env);
         const client = createClient({ provider: selectProvider, systemPrompt: systemPrompt })
         setLLMClient(client)
-    }, [selectProvider])
+    }, [selectProvider, workDir])
 
     useEffect(() => {
         initClient()
@@ -39,6 +38,7 @@ export default function App() {
             <Chat
                 llmClient={llmClient}
                 changeProvider={setSelectProvider}
+                workDir={workDir}
             />
         </Box>
     );

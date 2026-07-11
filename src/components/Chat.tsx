@@ -12,9 +12,10 @@ import { AgentEvent } from '../types/agent.js'
 import { ToolsManger } from '../tools/register.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
+    workDir: string
     changeProvider: (provider: ProviderConfig) => void
 }
-const Chat = ({ llmClient }: IChat) => {
+const Chat = ({ llmClient, workDir }: IChat) => {
     // writeLog("Chat - Agent", agent)
     const [agent, setAgent] = useState<Agent>()
     const messageMangerRuf = useRef(new MessageManger())
@@ -68,7 +69,7 @@ const Chat = ({ llmClient }: IChat) => {
 
     const initAgent = useCallback(() => {
         if (llmClient) {
-            const agent = new Agent(llmClient, messageMangerRuf.current, toolMangerRuf.current)
+            const agent = new Agent(llmClient, messageMangerRuf.current, toolMangerRuf.current, workDir)
             setAgent(agent)
         }
     }, [llmClient])
