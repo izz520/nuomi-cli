@@ -1,4 +1,4 @@
-import { IMessage, ThinkingBlock, ToolUseBlock } from "../types/messsage.js";
+import { IMessage, ThinkingBlock, ToolResultBlock, ToolUseBlock } from "../types/messsage.js";
 /**
  * AI的聊天历史记录
  */
@@ -49,6 +49,9 @@ export class MessageManger {
             content: "",
             toolResults: [{ toolUseId, content, isError }],
         });
+    }
+    addToolResultsMessage(results: ToolResultBlock[]): void {
+        this.history.push({ role: "user", content: "", toolResults: results });
     }
     getMessages(): IMessage[] {
         return [...this.history];

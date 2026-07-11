@@ -3,6 +3,7 @@ import { StreamEvent } from "../types/llm.js";
 import { ProviderConfig } from "../types/provider.js";
 import { MessageManger } from "../messageManger/message.js";
 import writeLog from "../utils/writeLog.js";
+import { convortAnthropicMessage } from "./convort-message.js";
 
 class AnthropicClient {
     private client: Anthropic;
@@ -25,6 +26,9 @@ class AnthropicClient {
 
         //拿到全部消息
         const message = messageManger.getMessages()
+        const convrtMessage = convortAnthropicMessage(message)
+        // console.log("🚀 ~ AnthropicClient ~ sendMessageStream ~ message:", message)
+        writeLog(convrtMessage)
         //格式化工具为Anthropic支持的格式
         const formatTools: Anthropic.Tool[] = tools.map((s) => {
             const inputSchema = s.input_schema as Record<string, unknown> | undefined;
@@ -43,11 +47,11 @@ class AnthropicClient {
             model: this.config.model,
             max_tokens: 1024,
             system: this.systemPrompt,
-            messages: message,
+            messages: convrtMessage,
             stream: true,
             tools: formatTools
         }
-        writeLog(params)
+        // writeLog(params)
         //发送消息
         const result = this.client.messages.stream(params)
         //思考

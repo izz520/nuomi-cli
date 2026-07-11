@@ -44,7 +44,7 @@ export class ReadFile implements Tool {
         };
     };
     async execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
-        writeLog("args", args)
+        // writeLog("args", args)
         //1.从args从获取到path
         const filePath = args["file_path"] as string ?? ""
         //2.从args获取从第几行开始读取
