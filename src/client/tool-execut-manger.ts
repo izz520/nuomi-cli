@@ -19,7 +19,7 @@ interface ExecutionResult {
   elapsed: number;
 }
 
-export class ToolExecutManget {
+export class ToolExecutManger {
   private pendingTask: PendingCall[] = [];
   private toolManger: ToolsManger;
   private ctx: ToolContext;

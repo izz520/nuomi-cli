@@ -8,7 +8,7 @@ import writeLog from "../utils/writeLog.js";
 import AnthropicClient from "./anthorpic.js";
 import createClient from "./create.js";
 import OpenAIClient from "./openai.js";
-import { ToolExecutManget } from "./tool-execut-manget.js";
+import { ToolExecutManger } from "./tool-execut-manger.js";
 
 // value, then attempt a bounded number of multi-turn recoveries. Mirrors Go.
 const MAX_TOKENS_CEILING = 64000;
@@ -199,7 +199,7 @@ export class Agent {
     // 工具批量调用
     private async batchExecute(cateTools: ToolUseBlock[], concurrent: boolean): Promise<AgentEvent[]> {
         const events: AgentEvent[] = [];
-        const taskManger = new ToolExecutManget(this.toolManger, {
+        const taskManger = new ToolExecutManger(this.toolManger, {
             workDir: this.workDir,
         })
         for (const tl of cateTools) {

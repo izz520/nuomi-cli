@@ -14,7 +14,7 @@ export default function App() {
     const config = loadConfig();
     const [llmClient, setLLMClient] = useState<AnthropicClient | OpenAIClient>();
     //当前使用的Provider
-    const [selectProvider, setSelectProvider] = useState<ProviderConfig>(config.providers[1])
+    const [selectProvider, setSelectProvider] = useState<ProviderConfig>(config.providers[0])
 
     const initClient = useCallback(() => {
         //读取系统信息和git仓库信息

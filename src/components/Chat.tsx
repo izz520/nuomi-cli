@@ -10,7 +10,7 @@ import { MessageManger } from '../messageManger/message.js'
 import writeLog from '../utils/writeLog.js'
 import { AgentEvent } from '../types/agent.js'
 import { ToolsManger } from '../tools/register.js'
-import { ReadFileTool } from '../tools/read-file2.js'
+import { ReadFile } from '../tools/read-file.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
     workDir: string
@@ -101,7 +101,7 @@ const Chat = ({ llmClient, workDir }: IChat) => {
     }, [agent])
 
     const initAgent = useCallback(() => {
-        toolMangerRuf.current.register(new ReadFileTool())
+        toolMangerRuf.current.register(new ReadFile())
         if (llmClient) {
             const agent = new Agent(llmClient, messageMangerRuf.current, toolMangerRuf.current, workDir)
             setAgent(agent)
