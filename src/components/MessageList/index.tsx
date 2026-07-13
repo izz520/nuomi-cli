@@ -14,7 +14,7 @@ const markdownParser = new Marked(
 );
 
 type MessageFormat = "plain" | "markdown" | "command";
-export type MessagePhase = AssistantMessagePhase | "working" | "thinking" | "tool_call";
+export type MessagePhase = AssistantMessagePhase | "working" | "thinking" | "tool_call" | "error";
 export interface ChatMessage {
     role: "user" | "assistant" | "system";
     content: string;
@@ -42,6 +42,7 @@ const MessageList = ({ messages }: MessageProps) => {
                         } else {
                             if (message.phase === "thinking") return symbols.thinking
                             if (message.phase === "tool_call") return symbols.tool
+                            if (message.phase === "error") return symbols.error
                             return symbols.circle
                         }
                     }
@@ -57,12 +58,12 @@ const MessageList = ({ messages }: MessageProps) => {
                         >
                             <Box flexDirection="row" flexShrink={1} flexGrow={1}>
                                 <Box width={2} flexShrink={0}>
-                                    <Text dimColor={message.phase === "thinking" || message.phase === "tool_call"}>
+                                    <Text color={message.phase === "error" ? 'red' : undefined} dimColor={message.phase === "thinking" || message.phase === "tool_call"}>
                                         {getIconType()}
                                     </Text>
                                 </Box>
                                 <Box flexShrink={1} flexGrow={1}>
-                                    <Text dimColor={message.phase === "thinking"}>{renderedContent}</Text>
+                                    <Text color={message.phase === "error" ? 'red' : undefined} dimColor={message.phase === "thinking"}>{renderedContent}</Text>
                                 </Box>
                             </Box>
                         </Box>

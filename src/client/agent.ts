@@ -21,12 +21,14 @@ export class Agent {
     private client: AnthropicClient | OpenAIClient
     private toolManger: ToolsManger
     private usageAnchor: UsageAnchor | null = null;
+    private abortSignal: AbortSignal
     private workDir: string;
-    constructor(client: AnthropicClient | OpenAIClient, messageManger: MessageManger, toolManger: ToolsManger, workDir: string) {
+    constructor(client: AnthropicClient | OpenAIClient, messageManger: MessageManger, toolManger: ToolsManger, workDir: string, abortSignal: AbortSignal) {
         this.client = client
         this.messageManger = messageManger
         this.toolManger = toolManger
         this.workDir = workDir
+        this.abortSignal = abortSignal
     }
     //开始循环
     async *startLoop(): AsyncGenerator<AgentEvent> {
@@ -49,7 +51,7 @@ export class Agent {
             const sentMessageCount = this.messageManger.len();
             //记录工具调用次数
             let consecutiveUnknown = 0;
-            const result = this.client.sendMessageStream(this.messageManger, toolSchemas)
+            const result = this.client.sendMessageStream(this.messageManger, toolSchemas, this.abortSignal)
             for await (const message of result) {
                 switch (message.type) {
                     case "thinking_delta": {

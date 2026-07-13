@@ -23,7 +23,7 @@ class OpenAIClient {
         this.systemPrompt = systemPrompt
     }
 
-    async *sendMessageStream(messageManger: MessageManger, tools: Record<string, unknown>[]): AsyncGenerator<StreamEvent> {
+    async *sendMessageStream(messageManger: MessageManger, tools: Record<string, unknown>[], abortSignal: AbortSignal): AsyncGenerator<StreamEvent> {
         //拿到消息管理器的所有消息记录
         const formatMessages = convortOpenAIMessage(messageManger.getMessages())
         //格式化成OpenAi格式的消息
@@ -54,7 +54,7 @@ class OpenAIClient {
             ...(formatTools.length > 0 ? { tools: formatTools } : {}),
         };
         // console.log("🚀 ~ OpenAIClient ~ sendMessageStream ~ params:", params)
-        const result = await this.client.responses.create(params)
+        const result = await this.client.responses.create(params, { signal: abortSignal ? abortSignal : null })
         // console.log("🚀 ~ OpenAIClient ~ sendMessageStream ~ result:", result)
         //是注释
         let isThinking = false

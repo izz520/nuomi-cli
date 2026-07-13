@@ -17,9 +17,11 @@ interface IChat {
     changeProvider: (provider: ProviderConfig) => void
 }
 
+const FIRST_RESPONSE_TIMEOUT_MS = 60_000
+
 type MessageAction =
     | { type: "append_user"; content: string }
-    | { type: "append_assistant"; content: string; phase: MessagePhase; merge: boolean };
+    | { type: "append_assistant"; content: string; phase: MessagePhase; merge: boolean }
 
 const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMessage[] => {
     switch (action.type) {
@@ -54,63 +56,94 @@ const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMe
 };
 
 const Chat = ({ llmClient, workDir }: IChat) => {
-    // writeLog("Chat - Agent", agent)
-    const [agent, setAgent] = useState<Agent>()
     const messageMangerRuf = useRef(new MessageManger())
     const toolMangerRuf = useRef(new ToolsManger())
     const [messages, dispatchMessages] = useReducer(messagesReducer, [])
-
+    const abortControllerRef = useRef<AbortController>(null)
     const handleSubmit = useCallback(async (message: string) => {
-        if (!agent) {
-            return console.log("Agent Init Fail,Please Restart Nuomi Cli");
-        }
+        if (!llmClient) return dispatchMessages({
+            type: "append_assistant",
+            phase: "error",
+            content: "Provider Clinet is not init!",
+            merge: false
+        })
+        //创建接口控制器，用来做取消操作
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+        const agent = new Agent(llmClient, messageMangerRuf.current, toolMangerRuf.current, workDir, controller.signal)
         dispatchMessages({ type: "append_user", content: message })
         messageMangerRuf.current.addUserMessage(message)
-        const loopResult = agent.startLoop()
-        for await (const event of loopResult) {
-            switch (event.type) {
-                case "thinking_text": {
-                    dispatchMessages({
-                        type: "append_assistant",
-                        content: event.text,
-                        phase: "thinking",
-                        merge: true
-                    })
-                    break;
+
+        let hasReceivedResponse = false
+        let didTimeout = false
+        const timeoutId = setTimeout(() => {
+            if (hasReceivedResponse) return
+
+            didTimeout = true
+            controller.abort()
+            dispatchMessages({
+                type: "append_assistant",
+                phase: "error",
+                content: "Request Timeout!",
+                merge: false
+            })
+        }, FIRST_RESPONSE_TIMEOUT_MS)
+
+        try {
+            const loopResult = agent.startLoop()
+            for await (const event of loopResult) {
+                if (!hasReceivedResponse) {
+                    hasReceivedResponse = true
+                    clearTimeout(timeoutId)
                 }
-                case "stream_text": {
-                    dispatchMessages({
-                        type: "append_assistant",
-                        content: event.text,
-                        phase: "final_answer",
-                        merge: true
-                    })
-                    break
-                }
-                case "tool_use": {
-                    dispatchMessages({
-                        type: "append_assistant",
-                        content: `${event.toolName} ${JSON.stringify(event.args)}`,
-                        phase: "tool_call",
-                        merge: false
-                    })
-                    break
+
+                switch (event.type) {
+                    case "thinking_text": {
+                        dispatchMessages({
+                            type: "append_assistant",
+                            content: event.text,
+                            phase: "thinking",
+                            merge: true
+                        })
+                        break;
+                    }
+                    case "stream_text": {
+                        dispatchMessages({
+                            type: "append_assistant",
+                            content: event.text,
+                            phase: "final_answer",
+                            merge: true
+                        })
+                        break
+                    }
+                    case "tool_use": {
+                        dispatchMessages({
+                            type: "append_assistant",
+                            content: `${event.toolName} ${JSON.stringify(event.args)}`,
+                            phase: "tool_call",
+                            merge: false
+                        })
+                        break
+                    }
                 }
             }
-        }
-    }, [agent])
-
-    const initAgent = useCallback(() => {
-        toolMangerRuf.current.register(new ReadFile())
-        if (llmClient) {
-            const agent = new Agent(llmClient, messageMangerRuf.current, toolMangerRuf.current, workDir)
-            setAgent(agent)
+        } catch (error) {
+            if (!didTimeout) {
+                dispatchMessages({
+                    type: "append_assistant",
+                    phase: "error",
+                    content: error instanceof Error ? error.message : "请求失败，请稍后重试。",
+                    merge: false
+                })
+            }
+        } finally {
+            clearTimeout(timeoutId)
+            if (abortControllerRef.current === controller) {
+                abortControllerRef.current = null
+            }
         }
     }, [llmClient, workDir])
 
-    useEffect(() => {
-        initAgent()
-    }, [initAgent])
     return (
         <Box flexDirection="column">
             <MessageList messages={messages} />

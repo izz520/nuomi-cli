@@ -21,7 +21,7 @@ class AnthropicClient {
 
 
 
-    async *sendMessageStream(messageManger: MessageManger, tools: Record<string, unknown>[]): AsyncGenerator<StreamEvent> {
+    async *sendMessageStream(messageManger: MessageManger, tools: Record<string, unknown>[], abortSignal: AbortSignal): AsyncGenerator<StreamEvent> {
         // console.log("发送消息给Agent");
 
         //拿到全部消息
@@ -53,7 +53,9 @@ class AnthropicClient {
         }
         // writeLog(params)
         //发送消息
-        const result = this.client.messages.stream(params)
+        const result = this.client.messages.stream(params, {
+            signal: abortSignal || {}
+        })
         //思考
         let isThinking = false;
         let thinkingStr = ""
