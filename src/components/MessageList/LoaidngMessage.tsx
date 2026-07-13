@@ -22,7 +22,7 @@ const LoadingMessage = ({ label = "Working" }: { label?: string }) => {
                 <Text color="gray">{spinnerFrames[frame % spinnerFrames.length]}</Text>
             </Box>
             <Box flexShrink={1} flexGrow={1}>
-                <Text color="gray">{label}</Text>
+                <Text color="gray">{label} ({Math.floor(frame / 12.5)}s)</Text>
             </Box>
         </Box>
     );

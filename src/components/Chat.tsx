@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { ProviderConfig } from '../types/provider.js'
-import { Box } from 'ink'
+import { Box, useApp, useInput } from 'ink'
 import MessageList, { ChatMessage, MessagePhase } from './MessageList/index.js'
 import PromptInput from './PromptInput.js'
 import AnthropicClient from '../client/anthorpic.js'
@@ -18,11 +18,13 @@ interface IChat {
 }
 
 const FIRST_RESPONSE_TIMEOUT_MS = 60_000
+type SystemEvent = "exit"
 
 type MessageAction =
     | { type: "append_user"; content: string }
     | { type: "append_assistant"; content: string; phase: MessagePhase; merge: boolean }
 
+// 处理UI侧显示的消息
 const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMessage[] => {
     switch (action.type) {
         case "append_user":
@@ -56,10 +58,38 @@ const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMe
 };
 
 const Chat = ({ llmClient, workDir }: IChat) => {
+    const { exit } = useApp()
     const messageMangerRuf = useRef(new MessageManger())
     const toolMangerRuf = useRef(new ToolsManger())
     const [messages, dispatchMessages] = useReducer(messagesReducer, [])
     const abortControllerRef = useRef<AbortController>(null)
+    const isExitingRef = useRef(false)
+
+    const handleSystemEvent = useCallback((event: SystemEvent) => {
+        switch (event) {
+            case "exit":
+                isExitingRef.current = true
+                abortControllerRef.current?.abort()
+                exit()
+                break
+        }
+    }, [exit])
+
+    useInput((input, key) => {
+        if (input === "c" && key.ctrl) {
+            handleSystemEvent("exit")
+        }
+    })
+
+    useEffect(() => {
+        const handleSigint = () => handleSystemEvent("exit")
+        process.once("SIGINT", handleSigint)
+
+        return () => {
+            process.off("SIGINT", handleSigint)
+        }
+    }, [handleSystemEvent])
+
     const handleSubmit = useCallback(async (message: string) => {
         if (!llmClient) return dispatchMessages({
             type: "append_assistant",
@@ -128,11 +158,11 @@ const Chat = ({ llmClient, workDir }: IChat) => {
                 }
             }
         } catch (error) {
-            if (!didTimeout) {
+            if (!didTimeout && !isExitingRef.current) {
                 dispatchMessages({
                     type: "append_assistant",
                     phase: "error",
-                    content: error instanceof Error ? error.message : "请求失败，请稍后重试。",
+                    content: error instanceof Error ? error.message : "Requset Fail",
                     merge: false
                 })
             }
