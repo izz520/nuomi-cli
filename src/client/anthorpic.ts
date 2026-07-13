@@ -160,6 +160,7 @@ class AnthropicClient {
                     if (isAnswer) {
                         //回答结束
                         isAnswer = false
+                        answer = ""
                         // console.log("回答:", answer);
 
                     }
