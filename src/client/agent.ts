@@ -130,11 +130,11 @@ export class Agent {
             this.messageManger.addAssistantFull(answer, thinkingBlocks, toolUses);
             //判断是否有工具调用
             if (toolUses.length > 0) {
-                console.log("有工具调用");
+                // console.log("有工具调用");
 
                 //进行工具分类和并发
                 const categoaryTools = this.categoryTools(toolUses)
-                console.log("🚀 ~ Agent ~ startLoop ~ categoaryTools:", categoaryTools)
+                // console.log("🚀 ~ Agent ~ startLoop ~ categoaryTools:", categoaryTools)
                 //总的结果
                 const toolTotalOrignResult: AgentEvent[] = []
                 //并发
@@ -143,7 +143,7 @@ export class Agent {
                     const cateResults = await this.batchExecute(cateTool.tools, cateTool.concurrent)
                     toolTotalOrignResult.push(...cateResults)
                 }
-                console.log("🚀 ~ Agent ~ startLoop ~ toolTotalOrignResult:", toolTotalOrignResult)
+                // console.log("🚀 ~ Agent ~ startLoop ~ toolTotalOrignResult:", toolTotalOrignResult)
 
                 for (const tu of toolUses) {
                     if (this.toolManger.get(tu.toolName)) consecutiveUnknown = 0;

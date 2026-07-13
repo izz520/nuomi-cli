@@ -63,7 +63,9 @@ const MessageList = ({ messages, isWorking }: MessageProps) => {
                                     </Text>
                                 </Box>
                                 <Box flexShrink={1} flexGrow={1}>
-                                    <Text color={message.phase === "error" ? 'red' : undefined} dimColor={message.phase === "thinking"}>{renderedContent}</Text>
+                                    {message.phase === "tool_call" && <Text>{message.content.split(",")[1]}</Text>}
+                                    {message.phase === "error" && <Text color="red">{renderedContent}</Text>}
+                                    {(message.phase !== "error" && message.phase !== "tool_call") && <Text dimColor={message.phase === "thinking"}>{renderedContent}</Text>}
                                 </Box>
                             </Box>
                         </Box>

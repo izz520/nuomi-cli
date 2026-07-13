@@ -11,6 +11,8 @@ import writeLog from '../utils/writeLog.js'
 import { AgentEvent } from '../types/agent.js'
 import { ToolsManger } from '../tools/register.js'
 import { ReadFile } from '../tools/read-file.js'
+import { Tool } from '../types/tools.js'
+import { ToolUseBlock } from '../types/messsage.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
     workDir: string
@@ -85,21 +87,6 @@ const Chat = ({ llmClient, workDir }: IChat) => {
         }
     }, [exit])
 
-    useInput((input, key) => {
-        if (input === "c" && key.ctrl) {
-            handleSystemEvent("exit")
-        }
-    })
-
-    useEffect(() => {
-        const handleSigint = () => handleSystemEvent("exit")
-        process.on("SIGINT", handleSigint)
-
-        return () => {
-            process.off("SIGINT", handleSigint)
-        }
-    }, [handleSystemEvent])
-
     const handleSubmit = useCallback(async (message: string) => {
         if (!llmClient) return dispatchMessages({
             type: "append_assistant",
@@ -109,6 +96,8 @@ const Chat = ({ llmClient, workDir }: IChat) => {
         })
         setIsWorking(true)
         setShowExitHint(false)
+        // 注册工具
+        toolMangerRuf.current.register(new ReadFile())
         //创建接口控制器，用来做取消操作
         const controller = new AbortController();
         abortControllerRef.current = controller;
@@ -163,9 +152,11 @@ const Chat = ({ llmClient, workDir }: IChat) => {
                     }
                     case "tool_use": {
                         setIsWorking(false)
+                        console.log(JSON.stringify(event.args));
+
                         dispatchMessages({
                             type: "append_assistant",
-                            content: `${event.toolName} ${JSON.stringify(event.args)}`,
+                            content: formatTool(event.toolName, event.args),
                             phase: "tool_call",
                             merge: false
                         })
@@ -190,6 +181,28 @@ const Chat = ({ llmClient, workDir }: IChat) => {
             }
         }
     }, [llmClient, workDir])
+
+    const formatTool = (toolName: string, toolArg: Record<string, unknown>) => {
+        if (toolName === "ReadFile") {
+            return `${toolName},${toolArg.file_path || ""}`
+        }
+        return ""
+    }
+
+    useInput((input, key) => {
+        if (input === "c" && key.ctrl) {
+            handleSystemEvent("exit")
+        }
+    })
+
+    useEffect(() => {
+        const handleSigint = () => handleSystemEvent("exit")
+        process.on("SIGINT", handleSigint)
+
+        return () => {
+            process.off("SIGINT", handleSigint)
+        }
+    }, [handleSystemEvent])
 
     return (
         <Box flexDirection="column">
