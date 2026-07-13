@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { ProviderConfig } from '../types/provider.js'
-import { Box, useApp, useInput } from 'ink'
+import { Box, Text, useApp, useInput } from 'ink'
 import MessageList, { ChatMessage, MessagePhase } from './MessageList/index.js'
 import PromptInput from './PromptInput.js'
 import AnthropicClient from '../client/anthorpic.js'
@@ -62,16 +62,26 @@ const Chat = ({ llmClient, workDir }: IChat) => {
     const messageMangerRuf = useRef(new MessageManger())
     const toolMangerRuf = useRef(new ToolsManger())
     const [messages, dispatchMessages] = useReducer(messagesReducer, [])
+    const [isWorking, setIsWorking] = useState(false)
+    const [showExitHint, setShowExitHint] = useState(false)
     const abortControllerRef = useRef<AbortController>(null)
     const isExitingRef = useRef(false)
 
     const handleSystemEvent = useCallback((event: SystemEvent) => {
         switch (event) {
-            case "exit":
+            case "exit": {
+                const activeController = abortControllerRef.current
+                if (activeController && !activeController.signal.aborted) {
+                    activeController.abort()
+                    setIsWorking(false)
+                    setShowExitHint(true)
+                    return
+                }
+
                 isExitingRef.current = true
-                abortControllerRef.current?.abort()
                 exit()
                 break
+            }
         }
     }, [exit])
 
@@ -83,7 +93,7 @@ const Chat = ({ llmClient, workDir }: IChat) => {
 
     useEffect(() => {
         const handleSigint = () => handleSystemEvent("exit")
-        process.once("SIGINT", handleSigint)
+        process.on("SIGINT", handleSigint)
 
         return () => {
             process.off("SIGINT", handleSigint)
@@ -97,6 +107,8 @@ const Chat = ({ llmClient, workDir }: IChat) => {
             content: "Provider Clinet is not init!",
             merge: false
         })
+        setIsWorking(true)
+        setShowExitHint(false)
         //创建接口控制器，用来做取消操作
         const controller = new AbortController();
         abortControllerRef.current = controller;
@@ -111,6 +123,7 @@ const Chat = ({ llmClient, workDir }: IChat) => {
 
             didTimeout = true
             controller.abort()
+            setIsWorking(false)
             dispatchMessages({
                 type: "append_assistant",
                 phase: "error",
@@ -129,6 +142,7 @@ const Chat = ({ llmClient, workDir }: IChat) => {
 
                 switch (event.type) {
                     case "thinking_text": {
+                        setIsWorking(false)
                         dispatchMessages({
                             type: "append_assistant",
                             content: event.text,
@@ -138,6 +152,7 @@ const Chat = ({ llmClient, workDir }: IChat) => {
                         break;
                     }
                     case "stream_text": {
+                        setIsWorking(false)
                         dispatchMessages({
                             type: "append_assistant",
                             content: event.text,
@@ -147,6 +162,7 @@ const Chat = ({ llmClient, workDir }: IChat) => {
                         break
                     }
                     case "tool_use": {
+                        setIsWorking(false)
                         dispatchMessages({
                             type: "append_assistant",
                             content: `${event.toolName} ${JSON.stringify(event.args)}`,
@@ -158,7 +174,7 @@ const Chat = ({ llmClient, workDir }: IChat) => {
                 }
             }
         } catch (error) {
-            if (!didTimeout && !isExitingRef.current) {
+            if (!didTimeout && !controller.signal.aborted && !isExitingRef.current) {
                 dispatchMessages({
                     type: "append_assistant",
                     phase: "error",
@@ -170,14 +186,20 @@ const Chat = ({ llmClient, workDir }: IChat) => {
             clearTimeout(timeoutId)
             if (abortControllerRef.current === controller) {
                 abortControllerRef.current = null
+                setIsWorking(false)
             }
         }
     }, [llmClient, workDir])
 
     return (
         <Box flexDirection="column">
-            <MessageList messages={messages} />
+            <MessageList messages={messages} isWorking={isWorking} />
             <PromptInput onSubmit={handleSubmit} />
+            {showExitHint && (
+                <Box marginLeft={2}>
+                    <Text dimColor>Press Ctrl+C again to exit.</Text>
+                </Box>
+            )}
         </Box>
     )
 }

@@ -23,12 +23,12 @@ export interface ChatMessage {
 };
 interface MessageProps {
     messages: ChatMessage[];
+    isWorking: boolean;
 }
 
 
-const MessageList = ({ messages }: MessageProps) => {
+const MessageList = ({ messages, isWorking }: MessageProps) => {
     // console.log("🚀 ~ MessageList ~ messages:", messages)
-    const isShowLoading = messages.length > 0 && messages[messages.length - 1]?.role === "user"
     return (
         <>
             <Box flexDirection="column" marginBottom={1}>
@@ -70,7 +70,7 @@ const MessageList = ({ messages }: MessageProps) => {
                     );
                 })}
             </Box>
-            {isShowLoading && <LoadingMessage />}
+            {isWorking && <LoadingMessage />}
         </>
 
     )
