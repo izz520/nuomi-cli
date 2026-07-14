@@ -82,8 +82,8 @@ export function extractContent(toolName: string, args: Record<string, unknown>):
 //权限存储的目录
 const DEFAULT_DENY_WRITE = [
   "config.yaml",
-  ".nuomi-cli/permissions.local.yaml",
-  ".nuomi-cli/skills/",
+  ".nuomi/permissions.local.yaml",
+  ".nuomi/skills/",
 ];
 
 //路径沙盒
@@ -315,7 +315,7 @@ export class PermissionChecker {
     if (this.mode === "plan" && (toolName === "WriteFile" || toolName === "EditFile")) {
       //拿到path路径
       const path = String(args.file_path ?? "");
-      if (path.includes(".nuomi-cli/plans/")) {
+      if (path.includes(".nuomi/plans/")) {
         //是否编辑或者写的路径是.nuomi-cli/plans/，是的话允许写入
         return { effect: "allow", reason: "Plan file write allowed in plan mode" };
       }

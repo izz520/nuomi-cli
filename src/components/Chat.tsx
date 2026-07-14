@@ -194,9 +194,9 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig }: IChat) => {
             bashTool.sandboxConfig = {
                 allowWrite: [workDir, "/tmp"],
                 denyWrite: [
-                    join(workDir, ".nuomi-cli", "config.yaml"),
-                    join(workDir, ".nuomi-cli", "permissions.local.yaml"),
-                    join(workDir, ".nuomi-cli", "skills"),
+                    join(workDir, "config.yaml"),
+                    join(workDir, ".nuomi", "permissions.local.yaml"),
+                    join(workDir, ".nuomi", "skills"),
                 ],
                 networkEnabled: sandboxNetworkEnabled,
             };
