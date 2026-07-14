@@ -8,6 +8,7 @@ import { loadConfig } from "./config.js";
 import { ProviderConfig } from "./types/provider.js";
 import Chat from "./components/Chat.js";
 import { buildSystemPrompt, detectEnvironment } from "./prompt/builder.js";
+import { PermissionMode } from "./premisson/checker.js";
 
 const workDir = process.cwd()
 export default function App() {
@@ -15,7 +16,7 @@ export default function App() {
     const [llmClient, setLLMClient] = useState<AnthropicClient | OpenAIClient>();
     //当前使用的Provider
     const [selectProvider, setSelectProvider] = useState<ProviderConfig>(config.providers[0])
-
+    const [permMode, setPermMode] = useState<PermissionMode>("default")
     const initClient = useCallback(() => {
         //读取系统信息和git仓库信息
         const env = detectEnvironment(workDir);
@@ -39,6 +40,7 @@ export default function App() {
                 llmClient={llmClient}
                 changeProvider={setSelectProvider}
                 workDir={workDir}
+                permMode={permMode}
             />
         </Box>
     );

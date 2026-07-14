@@ -7,16 +7,19 @@ import AnthropicClient from '../client/anthorpic.js'
 import OpenAIClient from '../client/openai.js'
 import { Agent } from '../client/agent.js'
 import { MessageManger } from '../messageManger/message.js'
-import writeLog from '../utils/writeLog.js'
-import { AgentEvent } from '../types/agent.js'
 import { ToolsManger } from '../tools/register.js'
 import { ReadFile } from '../tools/read-file.js'
-import { Tool } from '../types/tools.js'
-import { ToolUseBlock } from '../types/messsage.js'
+import { createSandbox, Sandbox } from '../sandbox/index.js'
+import { PermissionChecker, PermissionMode } from '../premisson/checker.js'
+import { WriteFileTool } from '../tools/write-file.js'
+import { EditFileTool } from '../tools/edit-file.js'
+import { GlobTool } from '../tools/glob.js'
+import { GrepTool } from '../tools/grep.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
     workDir: string
     changeProvider: (provider: ProviderConfig) => void
+    permMode: PermissionMode
 }
 
 const FIRST_RESPONSE_TIMEOUT_MS = 60_000
@@ -59,15 +62,24 @@ const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMe
     }
 };
 
-const Chat = ({ llmClient, workDir }: IChat) => {
+const Chat = ({ llmClient, workDir, permMode }: IChat) => {
     const { exit } = useApp()
+    const isExitingRef = useRef(false)
     const messageMangerRuf = useRef(new MessageManger())
     const toolMangerRuf = useRef(new ToolsManger())
     const [messages, dispatchMessages] = useReducer(messagesReducer, [])
     const [isWorking, setIsWorking] = useState(false)
     const [showExitHint, setShowExitHint] = useState(false)
     const abortControllerRef = useRef<AbortController>(null)
-    const isExitingRef = useRef(false)
+
+
+    // 沙箱相关状态
+    const sandboxRef = useRef<Sandbox | null>(createSandbox());
+    const [sandboxEnabled, setSandboxEnabled] = useState(false);
+    const [sandboxAutoAllow, setSandboxAutoAllow] = useState(false);
+    const sandboxEnabledRef = useRef(false);
+    const sandboxAutoAllowRef = useRef(false);
+    const sandboxNetworkEnabled = true;
 
     const handleSystemEvent = useCallback((event: SystemEvent) => {
         switch (event) {
@@ -98,9 +110,18 @@ const Chat = ({ llmClient, workDir }: IChat) => {
         setShowExitHint(false)
         // 注册工具
         toolMangerRuf.current.register(new ReadFile())
+        toolMangerRuf.current.register(new WriteFileTool())
+        toolMangerRuf.current.register(new EditFileTool())
+        toolMangerRuf.current.register(new GlobTool())
+        toolMangerRuf.current.register(new GrepTool())
         //创建接口控制器，用来做取消操作
         const controller = new AbortController();
         abortControllerRef.current = controller;
+        //创建沙盒和权限
+        const checker = new PermissionChecker(workDir, permMode);
+        // 将沙箱状态注入权限检查器
+        checker.sandboxEnabled = sandboxEnabledRef.current;
+        checker.sandboxAutoAllow = sandboxAutoAllowRef.current;
         const agent = new Agent(llmClient, messageMangerRuf.current, toolMangerRuf.current, workDir, controller.signal)
         dispatchMessages({ type: "append_user", content: message })
         messageMangerRuf.current.addUserMessage(message)

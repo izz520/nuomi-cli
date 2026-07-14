@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { load } from "js-yaml";
 import type { ProviderConfig, ProviderProtocol } from "./types/provider.js";
-import writeLog from "./utils/writeLog.js";
 
 export type AppConfig = {
     providers: ProviderConfig[];
@@ -9,138 +9,35 @@ export type AppConfig = {
 
 const configPath = resolve(process.cwd(), "config.yaml");
 
-type RawProviderConfig = Partial<Record<keyof ProviderConfig, string | boolean | number>>;
+type RawProviderConfig = Partial<Record<keyof ProviderConfig, unknown>>;
 
-function stripInlineComment(line: string): string {
-    let inSingleQuote = false;
-    let inDoubleQuote = false;
-
-    for (let index = 0; index < line.length; index += 1) {
-        const char = line[index];
-        const previous = line[index - 1];
-
-        if (char === "'" && !inDoubleQuote) {
-            inSingleQuote = !inSingleQuote;
-        } else if (char === "\"" && !inSingleQuote && previous !== "\\") {
-            inDoubleQuote = !inDoubleQuote;
-        } else if (char === "#" && !inSingleQuote && !inDoubleQuote) {
-            return line.slice(0, index).trimEnd();
-        }
-    }
-
-    return line;
-}
-
-function parseYamlValue(rawValue: string): string | boolean | number {
-    const value = stripInlineComment(rawValue).trim();
-
-    if (
-        (value.startsWith("\"") && value.endsWith("\"")) ||
-        (value.startsWith("'") && value.endsWith("'"))
-    ) {
-        return value.slice(1, -1);
-    }
-
-    if (value === "true") {
-        return true;
-    }
-
-    if (value === "false") {
-        return false;
-    }
-
-    if (/^\d+$/.test(value)) {
-        return Number(value);
-    }
-
-    return value;
-}
-
-function parseKeyValue(line: string): [string, string] | null {
-    const separatorIndex = line.indexOf(":");
-
-    if (separatorIndex === -1) {
-        return null;
-    }
-
-    return [
-        line.slice(0, separatorIndex).trim(),
-        line.slice(separatorIndex + 1).trim(),
-    ];
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseConfigYaml(source: string): {
     activeProviderName?: string;
     providers: RawProviderConfig[];
 } {
-    const providers: RawProviderConfig[] = [];
-    let activeProviderName: string | undefined;
-    let currentProvider: RawProviderConfig | null = null;
-    let section = "";
+    const parsed = load(source, { filename: configPath });
 
-    for (const rawLine of source.split(/\r?\n/)) {
-        const line = stripInlineComment(rawLine).trimEnd();
-
-        if (!line.trim()) {
-            continue;
-        }
-
-        const trimmed = line.trim();
-        const indentation = line.length - line.trimStart().length;
-
-        if (indentation === 0) {
-            const entry = parseKeyValue(trimmed);
-
-            if (!entry) {
-                continue;
-            }
-
-            const [key, rawValue] = entry;
-
-            if (key === "providers") {
-                section = "providers";
-                continue;
-            }
-
-            section = "";
-
-            if (key === "active_provider" || key === "provider") {
-                activeProviderName = String(parseYamlValue(rawValue));
-            }
-
-            continue;
-        }
-
-        if (section !== "providers") {
-            continue;
-        }
-
-        if (trimmed.startsWith("-")) {
-            currentProvider = {};
-            providers.push(currentProvider);
-
-            const entry = parseKeyValue(trimmed.slice(1).trim());
-            if (entry) {
-                const [key, rawValue] = entry;
-                currentProvider[key as keyof ProviderConfig] = parseYamlValue(rawValue);
-            }
-
-            continue;
-        }
-
-        if (!currentProvider) {
-            continue;
-        }
-
-        const entry = parseKeyValue(trimmed);
-
-        if (!entry) {
-            continue;
-        }
-
-        const [key, rawValue] = entry;
-        currentProvider[key as keyof ProviderConfig] = parseYamlValue(rawValue);
+    if (!isRecord(parsed)) {
+        throw new Error("config.yaml must contain a YAML object.");
     }
+
+    if (!Array.isArray(parsed.providers)) {
+        throw new Error('config.yaml must contain a "providers" array.');
+    }
+
+    const providers = parsed.providers.map((provider, index) => {
+        if (!isRecord(provider)) {
+            throw new Error(`Provider #${index + 1} must be a YAML object.`);
+        }
+
+        return provider as RawProviderConfig;
+    });
+    const activeProvider = parsed.active_provider ?? parsed.provider;
+    const activeProviderName = typeof activeProvider === "string" ? activeProvider : undefined;
 
     return { activeProviderName, providers };
 }
@@ -179,6 +76,6 @@ export function loadConfig(): AppConfig {
     const config = parseConfigYaml(readFileSync(configPath, "utf8"));
     const providers = config.providers.map(normalizeProvider);
     return {
-        providers,
+        providers
     };
 }

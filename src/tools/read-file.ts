@@ -1,21 +1,8 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { Tool, ToolCategory, ToolContext, ToolResult } from "../types/tools.js";
-import { ReadFileDescription } from "./descriptions.js";
-import writeLog from "../utils/writeLog.js";
+import { ReadFileDescription } from "./prompt.js";
+import { intArg } from "./utils.js";
 
-export function intArg(
-    args: Record<string, unknown>,
-    key: string,
-    fallback: number
-): number {
-    const v = args[key];
-    if (typeof v === "number") return Math.floor(v);
-    if (typeof v === "string") {
-        const n = parseInt(v, 10);
-        return isNaN(n) ? fallback : n;
-    }
-    return fallback;
-}
 // 读取文件的Tool
 export class ReadFile implements Tool {
     name = "ReadFile";
