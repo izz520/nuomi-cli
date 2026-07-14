@@ -16,6 +16,16 @@ export type AgentEvent =
   | { type: "thinking_text"; text: string }
   | { type: "thinking_complete"; thinking: string; signature: string }
   | { type: "tool_use"; toolName: string; toolId: string; args: Record<string, unknown> }
+  | {
+      type: "tool_group_start";
+      groupId: string;
+      concurrent: boolean;
+      tools: Array<{
+        toolId: string;
+        toolName: string;
+        args: Record<string, unknown>;
+      }>;
+    }
   | { type: "tool_result"; toolName: string; toolId: string; output: string; isError: boolean; elapsed: number }
   | { type: "turn_complete" }
   | { type: "loop_complete"; stopReason: string }

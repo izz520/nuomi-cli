@@ -159,9 +159,23 @@ export class Agent {
                 const toolTotalOrignResult: AgentEvent[] = []
                 //并发
                 for (const cateTool of categoaryTools) {
+                    yield {
+                        type: "tool_group_start",
+                        groupId: `tool-group:${cateTool.tools[0].toolUseId}`,
+                        concurrent: cateTool.concurrent,
+                        tools: cateTool.tools.map((tool) => ({
+                            toolId: tool.toolUseId,
+                            toolName: tool.toolName,
+                            args: tool.arguments,
+                        })),
+                    }
                     //拿到当前分类下所有工具结果
                     const cateResults = await this.batchExecute(cateTool.tools, cateTool.concurrent)
                     toolTotalOrignResult.push(...cateResults)
+                    // 每组执行完成后立即同步给 UI，避免已完成的工具仍显示运行中。
+                    for (const toolResult of cateResults) {
+                        yield toolResult
+                    }
                 }
                 // console.log("🚀 ~ Agent ~ startLoop ~ toolTotalOrignResult:", toolTotalOrignResult)
 

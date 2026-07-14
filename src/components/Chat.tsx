@@ -16,7 +16,7 @@ import { EditFileTool } from '../tools/edit-file.js'
 import { GlobTool } from '../tools/glob.js'
 import { GrepTool } from '../tools/grep.js'
 import { BashTool } from '../tools/bash.js'
-import { join } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
 import { PermissionAction, PermissionDialog } from './PermissionDialog.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
@@ -32,6 +32,15 @@ type SystemEvent = "exit"
 type MessageAction =
     | { type: "append_user"; content: string }
     | { type: "append_assistant"; content: string; phase: MessagePhase; merge: boolean }
+    | {
+        type: "tool_group_started";
+        groupId: string;
+        title: string;
+        resultLabel: string;
+        concurrent: boolean;
+        tools: Array<{ toolId: string; toolName: string; label: string }>;
+    }
+    | { type: "tool_finished"; toolId: string; output: string; isError: boolean; elapsed: number }
 
 // 处理UI侧显示的消息
 const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMessage[] => {
@@ -63,6 +72,48 @@ const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMe
                 }
             ];
         }
+        case "tool_group_started":
+            return [
+                ...messages,
+                {
+                    role: "assistant",
+                    content: action.title,
+                    phase: "tool_call",
+                    toolGroup: {
+                        groupId: action.groupId,
+                        title: action.title,
+                        resultLabel: action.resultLabel,
+                        concurrent: action.concurrent,
+                        tools: action.tools.map((tool) => ({
+                            ...tool,
+                            status: "running" as const,
+                        })),
+                    },
+                },
+            ];
+        case "tool_finished":
+            return messages.map((message) => {
+                const group = message.toolGroup;
+                if (!group?.tools.some((tool) => tool.toolId === action.toolId)) return message;
+
+                const denied = action.isError && /^Permission denied/i.test(action.output);
+                const tools = group.tools.map((tool) => tool.toolId === action.toolId
+                    ? {
+                        ...tool,
+                        status: denied ? "denied" as const : action.isError ? "error" as const : "success" as const,
+                        output: action.output,
+                        elapsed: action.elapsed,
+                    }
+                    : tool
+                );
+                return {
+                    ...message,
+                    toolGroup: {
+                        ...group,
+                        tools,
+                    },
+                };
+            });
     }
 };
 
@@ -221,13 +272,30 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig }: IChat) => {
                     }
                     case "tool_use": {
                         setIsWorking(false)
-                        console.log(JSON.stringify(event.args));
-
+                        break
+                    }
+                    case "tool_group_start": {
                         dispatchMessages({
-                            type: "append_assistant",
-                            content: formatTool(event.toolName, event.args),
-                            phase: "tool_call",
-                            merge: false
+                            type: "tool_group_started",
+                            groupId: event.groupId,
+                            concurrent: event.concurrent,
+                            title: describeToolGroup(event.tools),
+                            resultLabel: describeToolGroupResult(event.tools),
+                            tools: event.tools.map((tool) => ({
+                                toolId: tool.toolId,
+                                toolName: tool.toolName,
+                                label: formatTool(tool.toolName, tool.args, workDir),
+                            })),
+                        })
+                        break
+                    }
+                    case "tool_result": {
+                        dispatchMessages({
+                            type: "tool_finished",
+                            toolId: event.toolId,
+                            output: event.output,
+                            isError: event.isError,
+                            elapsed: event.elapsed,
                         })
                         break
                     }
@@ -251,16 +319,80 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig }: IChat) => {
         }
     }, [llmClient, workDir])
 
-    const formatTool = (toolName: string, toolArg: Record<string, unknown>) => {
-        // if (toolName === "ReadFile") {
-        //     return `${toolName},${toolArg.file_path || ""}`
-        // }
-        // return ""
-        return `${toolName},${JSON.stringify(toolArg) || ""}`
-    }
-
     const truncate = (s: string, max: number): string =>
         s.length > max ? s.slice(0, max) + "…" : s;
+
+    const formatPath = (value: unknown, baseDir: string): string => {
+        if (typeof value !== "string" || !value) return ".";
+        if (!isAbsolute(value)) return value;
+        return relative(baseDir, value) || ".";
+    };
+
+    const formatTool = (
+        toolName: string,
+        args: Record<string, unknown>,
+        baseDir: string
+    ): string => {
+        const filePath = formatPath(args.file_path ?? args.path, baseDir);
+        const pattern = truncate(String(args.pattern ?? ""), 72);
+
+        switch (toolName) {
+            case "ReadFile":
+                return `Read ${filePath}`;
+            case "WriteFile":
+                return `Write ${filePath}`;
+            case "EditFile":
+                return `Edit ${filePath}`;
+            case "Glob":
+                return `Glob  ${pattern || "*"}${filePath === "." ? "" : ` in ${filePath}`}`;
+            case "Grep": {
+                const scope = args.include ? String(args.include) : filePath;
+                return `Grep  "${pattern}" in ${scope}`;
+            }
+            case "Bash":
+                return `$ ${truncate(String(args.command ?? ""), 96)}`;
+            default:
+                return toolName;
+        }
+    };
+
+    const isMetadataSearch = (tools: Array<{ args: Record<string, unknown> }>): boolean => {
+        const content = tools
+            .flatMap((tool) => Object.values(tool.args))
+            .map(String)
+            .join(" ")
+            .toLowerCase();
+        return /package\.json|pyproject\.toml|cargo\.toml|go\.mod|version/.test(content);
+    };
+
+    //工具分组的描述
+    const describeToolGroup = (
+        tools: Array<{ toolName: string; args: Record<string, unknown> }>
+    ): string => {
+        const names = tools.map((tool) => tool.toolName);
+
+        if (names.every((name) => name === "Glob" || name === "Grep")) {
+            return isMetadataSearch(tools) ? "Search project metadata" : "Search project files";
+        }
+        if (names.every((name) => name === "ReadFile")) return "Read project files";
+        if (names.every((name) => name === "WriteFile" || name === "EditFile")) {
+            return "Modify project files";
+        }
+        if (names.every((name) => name === "Bash")) return "Run commands";
+        return "Inspect project";
+    };
+
+    const describeToolGroupResult = (
+        tools: Array<{ toolName: string; args: Record<string, unknown> }>
+    ): string => {
+        const names = tools.map((tool) => tool.toolName);
+
+        if (names.every((name) => name === "Glob" || name === "Grep")) return "Search complete";
+        if (names.every((name) => name === "ReadFile")) return "Files read";
+        if (names.every((name) => name === "WriteFile" || name === "EditFile")) return "Changes applied";
+        if (names.every((name) => name === "Bash")) return "Commands complete";
+        return "Tools complete";
+    };
 
     const formatToolArgs = (args: Record<string, unknown>): string => {
         if (args.command) return truncate(String(args.command), 80);
@@ -270,8 +402,10 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig }: IChat) => {
     };
 
     const handleSubmitAsk = (action: PermissionAction) => {
-        permissionResolveRef.current?.(action)
+        const resolvePermission = permissionResolveRef.current
+        permissionResolveRef.current = null
         setPermissionRequest(null)
+        resolvePermission?.(action)
     }
 
     useInput((input, key) => {
@@ -292,7 +426,7 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig }: IChat) => {
     return (
         <Box flexDirection="column">
             <MessageList messages={messages} isWorking={isWorking} />
-            {permissionRequest && <PermissionDialog toolName={permissionRequest.toolName} argsSummary={permissionRequest.argsSummary} reason={permissionRequest.toolName} onComplete={handleSubmitAsk} />}
+            {permissionRequest && <PermissionDialog toolName={permissionRequest.toolName} argsSummary={permissionRequest.argsSummary} reason={permissionRequest.reason} onComplete={handleSubmitAsk} />}
             <PromptInput isWaiting={!!permissionRequest} onSubmit={handleSubmit} />
             {showExitHint && (
                 <Box marginLeft={2}>

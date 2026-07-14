@@ -16,7 +16,7 @@ export const brand = {
   tool: chalk.cyan,
   thinking: chalk.hex("#009697"),
   user: chalk.bold.blue,
-  assistant: chalk.bold.hex("#a78bfa"),
+  assistant: chalk.bold.hex("#009697"),
 };
 
 export const symbols = {
@@ -25,6 +25,7 @@ export const symbols = {
   tool: "▶",
   success: "✓",
   error: "✗",
+  denied: "⊘",
   arrow: "→",
   dot: "·",
   circle: "⏺",
@@ -40,6 +41,6 @@ export const commandIcons: Record<string, string> = {
 export const borderColors: Record<string, string> = {
   idle: "gray",
   focused: "gray",
-  agent: "#a855f6",
+  agent: "#009697",
   error: "red",
 };
