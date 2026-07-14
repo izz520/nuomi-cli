@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { ProviderConfig } from '../types/provider.js'
+import { ProviderConfig, SandBoxConfig } from '../types/provider.js'
 import { Box, Text, useApp, useInput } from 'ink'
 import MessageList, { ChatMessage, MessagePhase } from './MessageList/index.js'
 import PromptInput from './PromptInput.js'
@@ -15,11 +15,15 @@ import { WriteFileTool } from '../tools/write-file.js'
 import { EditFileTool } from '../tools/edit-file.js'
 import { GlobTool } from '../tools/glob.js'
 import { GrepTool } from '../tools/grep.js'
+import { BashTool } from '../tools/bash.js'
+import { join } from 'node:path'
+import { PermissionAction, PermissionDialog } from './PermissionDialog.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
     workDir: string
     changeProvider: (provider: ProviderConfig) => void
     permMode: PermissionMode
+    sandboxConfig: SandBoxConfig
 }
 
 const FIRST_RESPONSE_TIMEOUT_MS = 60_000
@@ -62,7 +66,7 @@ const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMe
     }
 };
 
-const Chat = ({ llmClient, workDir, permMode }: IChat) => {
+const Chat = ({ llmClient, workDir, permMode, sandboxConfig }: IChat) => {
     const { exit } = useApp()
     const isExitingRef = useRef(false)
     const messageMangerRuf = useRef(new MessageManger())
@@ -71,15 +75,24 @@ const Chat = ({ llmClient, workDir, permMode }: IChat) => {
     const [isWorking, setIsWorking] = useState(false)
     const [showExitHint, setShowExitHint] = useState(false)
     const abortControllerRef = useRef<AbortController>(null)
-
-
+    const permissionResolveRef = useRef<((v: "allow" | "deny" | "allowAlways") => void) | null>(null);
+    const [permissionRequest, setPermissionRequest] = useState<{
+        toolName: string;
+        argsSummary: string;
+        reason: string;
+    } | null>(null);
     // 沙箱相关状态
     const sandboxRef = useRef<Sandbox | null>(createSandbox());
-    const [sandboxEnabled, setSandboxEnabled] = useState(false);
-    const [sandboxAutoAllow, setSandboxAutoAllow] = useState(false);
-    const sandboxEnabledRef = useRef(false);
-    const sandboxAutoAllowRef = useRef(false);
-    const sandboxNetworkEnabled = true;
+    // 沙盒总开关
+    const [sandboxEnabled, setSandboxEnabled] = useState(sandboxConfig.enabled ?? false);
+    //沙盒自动允许开关
+    const [sandboxAutoAllow, setSandboxAutoAllow] = useState(sandboxConfig.auto_allow ?? false);
+    //沙盒总开关引用
+    const sandboxEnabledRef = useRef(sandboxConfig.enabled ?? false);
+    // 沙盒自动允许开关引用
+    const sandboxAutoAllowRef = useRef(sandboxConfig.auto_allow ?? false);
+    // 沙盒是否允许联网
+    const sandboxNetworkEnabled = sandboxConfig.network_enabled ?? false;
 
     const handleSystemEvent = useCallback((event: SystemEvent) => {
         switch (event) {
@@ -114,6 +127,7 @@ const Chat = ({ llmClient, workDir, permMode }: IChat) => {
         toolMangerRuf.current.register(new EditFileTool())
         toolMangerRuf.current.register(new GlobTool())
         toolMangerRuf.current.register(new GrepTool())
+        toolMangerRuf.current.register(new BashTool())
         //创建接口控制器，用来做取消操作
         const controller = new AbortController();
         abortControllerRef.current = controller;
@@ -122,7 +136,41 @@ const Chat = ({ llmClient, workDir, permMode }: IChat) => {
         // 将沙箱状态注入权限检查器
         checker.sandboxEnabled = sandboxEnabledRef.current;
         checker.sandboxAutoAllow = sandboxAutoAllowRef.current;
-        const agent = new Agent(llmClient, messageMangerRuf.current, toolMangerRuf.current, workDir, controller.signal)
+        // 将沙箱注入 BashTool
+        const bashTool = toolMangerRuf.current.get("Bash") as BashTool | undefined;
+        if (bashTool && sandboxEnabledRef.current) {
+            bashTool.sandbox = sandboxRef.current;
+            bashTool.sandboxConfig = {
+                allowWrite: [workDir, "/tmp"],
+                denyWrite: [
+                    join(workDir, ".nuomi-cli", "config.yaml"),
+                    join(workDir, ".nuomi-cli", "permissions.local.yaml"),
+                    join(workDir, ".nuomi-cli", "skills"),
+                ],
+                networkEnabled: sandboxNetworkEnabled,
+            };
+        } else if (bashTool) {
+            bashTool.sandbox = null;
+        }
+        const agent = new Agent({
+            client: llmClient,
+            messageManger: messageMangerRuf.current,
+            toolManger: toolMangerRuf.current,
+            workDir: workDir,
+            abortSignal: controller.signal,
+            permissionCheck: checker,
+            // 权限异步等待用户选择后返回结果
+            onPermissionRequest: async (toolName, args, decision) => {
+                return new Promise<"allow" | "deny" | "allowAlways">((resolve) => {
+                    permissionResolveRef.current = resolve;
+                    setPermissionRequest({
+                        toolName,
+                        argsSummary: formatToolArgs(args),
+                        reason: decision.reason,
+                    });
+                });
+            },
+        })
         dispatchMessages({ type: "append_user", content: message })
         messageMangerRuf.current.addUserMessage(message)
 
@@ -210,6 +258,20 @@ const Chat = ({ llmClient, workDir, permMode }: IChat) => {
         return ""
     }
 
+    const truncate = (s: string, max: number): string =>
+        s.length > max ? s.slice(0, max) + "…" : s;
+
+    const formatToolArgs = (args: Record<string, unknown>): string => {
+        if (args.command) return truncate(String(args.command), 80);
+        if (args.file_path) return truncate(String(args.file_path), 80);
+        if (args.pattern) return truncate(String(args.pattern), 80);
+        return "";
+    };
+
+    const handleSubmitAsk = (action: PermissionAction) => {
+        permissionResolveRef.current?.(action)
+    }
+
     useInput((input, key) => {
         if (input === "c" && key.ctrl) {
             handleSystemEvent("exit")
@@ -229,6 +291,7 @@ const Chat = ({ llmClient, workDir, permMode }: IChat) => {
         <Box flexDirection="column">
             <MessageList messages={messages} isWorking={isWorking} />
             <PromptInput onSubmit={handleSubmit} />
+            {permissionRequest && <PermissionDialog toolName={permissionRequest.toolName} argsSummary={permissionRequest.argsSummary} reason={permissionRequest.toolName} onComplete={handleSubmitAsk} />}
             {showExitHint && (
                 <Box marginLeft={2}>
                     <Text dimColor>Press Ctrl+C again to exit.</Text>

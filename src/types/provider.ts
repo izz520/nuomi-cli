@@ -10,3 +10,10 @@ export interface ProviderConfig {
     context_window?: number;
     max_output_tokens?: number;
 }
+
+
+export interface SandBoxConfig {
+    enabled: boolean;
+    auto_allow: boolean;
+    network_enabled: boolean
+}

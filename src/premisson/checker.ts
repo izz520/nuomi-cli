@@ -86,15 +86,18 @@ const DEFAULT_DENY_WRITE = [
   ".nuomi-cli/skills/",
 ];
 
+//路径沙盒
 export class PathSandbox {
   private allowedRoots: string[];
   private denyWritePaths: string[];
   private projectDir: string;
 
   constructor(projectDir: string) {
+    //拿到项目路径的绝对路径
     this.projectDir = resolve(projectDir);
+    //给允许的根目录下添加一个
     this.allowedRoots = [this.projectDir, "/tmp"];
-    // 将相对路径转为绝对路径
+    // 把明确禁止的一些路径也转换为绝对路径，并且添加到禁止的路径中
     this.denyWritePaths = DEFAULT_DENY_WRITE.map((p) => join(this.projectDir, p));
   }
 
@@ -231,6 +234,14 @@ function isSafeCommand(command: string): boolean {
   const trimmed = command.trim();
   // Reject anything with shell metacharacters: a "safe" prefix like `cat` must
   // not become a gateway to piping/chaining/redirection/substitution.
+  /** 可能存在危险的操作
+    cat file.txt > config.yaml   # 重定向并写文件
+    cat file.txt | sh            # 将内容交给其他命令执行
+    ls; rm -rf ./data            # 连续执行多条命令
+    pwd && dangerous-command     # 前一条成功后执行下一条
+    echo $(dangerous-command)    # 命令替换
+    echo `dangerous-command`     # 旧式命令替换   
+   */
   if (
     trimmed.includes(">") ||
     trimmed.includes("|") ||
@@ -241,6 +252,7 @@ function isSafeCommand(command: string): boolean {
   ) {
     return false;
   }
+  //再判断是否是在安全的脚本命令前缀名单里
   return SAFE_PREFIXES.some(
     (prefix) =>
       trimmed === prefix ||
@@ -292,45 +304,56 @@ export class PermissionChecker {
     category: "read" | "write" | "command",
     args: Record<string, unknown>
   ): Decision {
+    //获取必填参数
     const content = extractContent(toolName, args);
 
     // Layer 0: plan-mode plan-file write exception.
     // Both WriteFile and EditFile targeting the plan file are allowed so the
     // model can create and update its plan. Mirrors Go's category-level check
     // against CategoryWrite (which covers both tools).
+    //如果当前是计划模式并且工具为写文件或者编辑文件
     if (this.mode === "plan" && (toolName === "WriteFile" || toolName === "EditFile")) {
+      //拿到path路径
       const path = String(args.file_path ?? "");
-      if (path.includes(".mewcode/plans/")) {
+      if (path.includes(".nuomi-cli/plans/")) {
+        //是否编辑或者写的路径是.nuomi-cli/plans/，是的话允许写入
         return { effect: "allow", reason: "Plan file write allowed in plan mode" };
       }
     }
 
     // Layer 2: safe read-only command auto-allow (metachar-guarded).
+    //是终端命令，查看是否是安全
     if (category === "command" && isSafeCommand(content)) {
       return { effect: "allow", reason: "Safe read-only command" };
     }
 
     // Layer 3: dangerous command block — reason 记录具体匹配的模式
+    //检查是否是终端命令，是的话，查询是否是危险操作
     const dangerReason = category === "command" ? detectDangerous(content) : "";
     if (dangerReason) {
+      //是危险操作
       return { effect: "deny", reason: `Dangerous command blocked: ${dangerReason}` };
     }
 
     // Layer 3.5: 沙箱自动放行——OS 沙箱已隔离写入，非危险命令可跳过人工确认
+    //是否开启了沙盒，并且开启了自动放行，在沙盒里面是已经做了安全执行的
     if (this.sandboxEnabled && this.sandboxAutoAllow && category === "command") {
       return { effect: "allow", reason: "Sandbox auto-allow: OS sandbox active" };
     }
 
     // Layer 4: path sandbox (file tools only).
+    //拿到文件路径，这里可能没有
     const filePath = String(args.file_path ?? args.path ?? "");
     if ((category === "read" || category === "write") && filePath) {
       // denyWrite 检查优先：敏感路径始终拒绝写入
       if (category === "write") {
+        //检查是否在
         const denyDecision = this.sandbox.checkDenyWrite(filePath);
         if (denyDecision) {
           return denyDecision;
         }
       }
+      //这次请求的路径是否是项目之外的路径，是的话，直接拒绝
       const sandboxDecision = this.sandbox.check(filePath);
       if (sandboxDecision && this.mode !== "bypassPermissions") {
         return { effect: "ask", reason: sandboxDecision.reason };

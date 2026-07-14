@@ -1,4 +1,5 @@
 import { MessageManger } from "../messageManger/message.js";
+import { Decision, PermissionChecker } from "../premisson/checker.js";
 import { ToolsManger } from "../tools/register.js";
 import { AgentEvent } from "../types/agent.js";
 import { UsageAnchor } from "../types/compact.js";
@@ -10,6 +11,19 @@ import createClient from "./create.js";
 import OpenAIClient from "./openai.js";
 import { ToolExecutManger } from "./tool-execut-manger.js";
 
+interface IAgentConfig {
+    client: AnthropicClient | OpenAIClient,
+    messageManger: MessageManger,
+    toolManger: ToolsManger,
+    workDir: string,
+    abortSignal: AbortSignal,
+    permissionCheck: PermissionChecker
+    onPermissionRequest?: (
+        toolName: string,
+        args: Record<string, unknown>,
+        decision: Decision
+    ) => Promise<"allow" | "deny" | "allowAlways">;
+}
 // value, then attempt a bounded number of multi-turn recoveries. Mirrors Go.
 const MAX_TOKENS_CEILING = 64000;
 const MAX_OUTPUT_TOKENS_RECOVERIES = 3;
@@ -23,12 +37,14 @@ export class Agent {
     private usageAnchor: UsageAnchor | null = null;
     private abortSignal: AbortSignal
     private workDir: string;
-    constructor(client: AnthropicClient | OpenAIClient, messageManger: MessageManger, toolManger: ToolsManger, workDir: string, abortSignal: AbortSignal) {
+    private permissionCheck: PermissionChecker;
+    constructor({ client, messageManger, workDir, abortSignal, permissionCheck, toolManger }: IAgentConfig) {
         this.client = client
         this.messageManger = messageManger
         this.toolManger = toolManger
         this.workDir = workDir
         this.abortSignal = abortSignal
+        this.permissionCheck = permissionCheck
     }
     //开始循环
     async *startLoop(): AsyncGenerator<AgentEvent> {
@@ -134,6 +150,7 @@ export class Agent {
 
                 //进行工具分类和并发
                 const categoaryTools = this.categoryTools(toolUses)
+
                 // console.log("🚀 ~ Agent ~ startLoop ~ categoaryTools:", categoaryTools)
                 //总的结果
                 const toolTotalOrignResult: AgentEvent[] = []
@@ -185,8 +202,10 @@ export class Agent {
         for (const tool of tools) {
             //获取工具名
             const toolRegister = this.toolManger.get(tool.toolName)
-            //判断工具名称
-            const concurrent = (toolRegister?.category ?? "command") === "read"
+            //判断工具分类
+            const category = toolRegister?.category ?? "command"
+            //是否是读取，读取可以并发读取
+            const concurrent = category === "read"
             if (concurrent && categoryTools.length > 0 && categoryTools[categoryTools.length - 1].concurrent) {
                 categoryTools[categoryTools.length - 1].tools.push(tool)
             } else {
@@ -205,6 +224,26 @@ export class Agent {
             workDir: this.workDir,
         })
         for (const tl of cateTools) {
+            //判断工具分类
+            const tool = this.toolManger.get(tl.toolName)
+            const category = tool?.category ?? "command"
+            //是否是读取，读取可以并发读取
+            const concurrent = category === "read"
+            const decision = this.permissionCheck.check(tl.toolName, category, tl.arguments);
+            console.log("🚀 ~ Agent ~ categoryTools ~ decision:", decision)
+            if (decision.effect === "deny") {
+                //权限拒绝
+                events.push({
+                    type: "tool_result",
+                    toolName: tl.toolName,
+                    toolId: tl.toolUseId,
+                    output: `Permission denied: ${decision.reason}. 此操作已被安全策略拦截和阻止，请告知用户该命令被拒绝，不要描述该命令会做什么。`,
+                    isError: true,
+                    elapsed: 0,
+                });
+                continue;
+            }
+
             // const tool = this.toolManger.get(tl.toolName);
             taskManger.submit(tl.toolUseId, tl.toolName, tl.arguments);
             //不支持并发，则执行

@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { load } from "js-yaml";
-import type { ProviderConfig, ProviderProtocol } from "./types/provider.js";
+import type { ProviderConfig, ProviderProtocol, SandBoxConfig } from "./types/provider.js";
 
 export type AppConfig = {
     providers: ProviderConfig[];
+    activeProviderName?: string;
+    sandbox: SandBoxConfig
 };
 
 const configPath = resolve(process.cwd(), "config.yaml");
@@ -18,8 +20,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function parseConfigYaml(source: string): {
     activeProviderName?: string;
     providers: RawProviderConfig[];
+    sandbox: SandBoxConfig
 } {
     const parsed = load(source, { filename: configPath });
+    // console.log("🚀 ~ parseConfigYaml ~ parsed:", parsed)
 
     if (!isRecord(parsed)) {
         throw new Error("config.yaml must contain a YAML object.");
@@ -38,8 +42,8 @@ function parseConfigYaml(source: string): {
     });
     const activeProvider = parsed.active_provider ?? parsed.provider;
     const activeProviderName = typeof activeProvider === "string" ? activeProvider : undefined;
-
-    return { activeProviderName, providers };
+    const sandbox: SandBoxConfig = parsed.sandbox ? parsed.sandbox as SandBoxConfig : { enabled: true, auto_allow: true, network_enabled: true } as SandBoxConfig
+    return { activeProviderName, providers, sandbox };
 }
 
 function assertString(value: unknown, key: string, providerName: string): string {
@@ -74,8 +78,11 @@ function normalizeProvider(provider: RawProviderConfig, index: number): Provider
 
 export function loadConfig(): AppConfig {
     const config = parseConfigYaml(readFileSync(configPath, "utf8"));
+    // console.log("🚀 ~ loadConfig ~ config:", config)
     const providers = config.providers.map(normalizeProvider);
     return {
-        providers
+        ...config,
+        providers,
+
     };
 }

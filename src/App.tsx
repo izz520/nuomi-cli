@@ -41,6 +41,7 @@ export default function App() {
                 changeProvider={setSelectProvider}
                 workDir={workDir}
                 permMode={permMode}
+                sandboxConfig={config.sandbox}
             />
         </Box>
     );
