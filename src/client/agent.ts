@@ -38,13 +38,16 @@ export class Agent {
     private abortSignal: AbortSignal
     private workDir: string;
     private permissionCheck: PermissionChecker;
-    constructor({ client, messageManger, workDir, abortSignal, permissionCheck, toolManger }: IAgentConfig) {
+    private onPermissionRequest: IAgentConfig['onPermissionRequest']
+    constructor({ client, messageManger, workDir, abortSignal, permissionCheck, toolManger, onPermissionRequest }: IAgentConfig) {
         this.client = client
         this.messageManger = messageManger
         this.toolManger = toolManger
         this.workDir = workDir
         this.abortSignal = abortSignal
         this.permissionCheck = permissionCheck
+        this.onPermissionRequest = onPermissionRequest
+
     }
     //开始循环
     async *startLoop(): AsyncGenerator<AgentEvent> {
@@ -242,6 +245,27 @@ export class Agent {
                     elapsed: 0,
                 });
                 continue;
+            }
+            if (decision.effect === "ask" && this.onPermissionRequest) {
+                const response = await this.onPermissionRequest(
+                    tl.toolName,
+                    tl.arguments,
+                    decision
+                );
+                if (response === "deny") {
+                    events.push({
+                        type: "tool_result",
+                        toolName: tl.toolName,
+                        toolId: tl.toolUseId,
+                        output: "Permission denied by user",
+                        isError: true,
+                        elapsed: 0,
+                    });
+                    continue;
+                }
+                if (response === "allowAlways") {
+                    this.permissionCheck.allowAlways(tl.toolName, tl.arguments);
+                }
             }
 
             // const tool = this.toolManger.get(tl.toolName);
