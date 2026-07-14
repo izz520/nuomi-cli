@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { load } from "js-yaml";
-import type { ProviderConfig, ProviderProtocol, SandBoxConfig } from "./types/provider.js";
+import type { MCPServerConfig, ProviderConfig, ProviderProtocol, SandBoxConfig } from "./types/provider.js";
 
 export type AppConfig = {
     providers: ProviderConfig[];
@@ -21,6 +21,7 @@ function parseConfigYaml(source: string): {
     activeProviderName?: string;
     providers: RawProviderConfig[];
     sandbox: SandBoxConfig
+    mcp_servers: MCPServerConfig[]
 } {
     const parsed = load(source, { filename: configPath });
     // console.log("🚀 ~ parseConfigYaml ~ parsed:", parsed)
@@ -40,10 +41,12 @@ function parseConfigYaml(source: string): {
 
         return provider as RawProviderConfig;
     });
+
+    const mcp_servers = parsed.mcp_servers as MCPServerConfig[] ?? []
     const activeProvider = parsed.active_provider ?? parsed.provider;
     const activeProviderName = typeof activeProvider === "string" ? activeProvider : undefined;
     const sandbox: SandBoxConfig = parsed.sandbox ? parsed.sandbox as SandBoxConfig : { enabled: true, auto_allow: true, network_enabled: true } as SandBoxConfig
-    return { activeProviderName, providers, sandbox };
+    return { activeProviderName, providers, sandbox, mcp_servers };
 }
 
 function assertString(value: unknown, key: string, providerName: string): string {
@@ -78,7 +81,7 @@ function normalizeProvider(provider: RawProviderConfig, index: number): Provider
 
 export function loadConfig(): AppConfig {
     const config = parseConfigYaml(readFileSync(configPath, "utf8"));
-    // console.log("🚀 ~ loadConfig ~ config:", config)
+    console.log("🚀 ~ loadConfig ~ config:", config)
     const providers = config.providers.map(normalizeProvider);
     return {
         ...config,

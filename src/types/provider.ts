@@ -17,3 +17,13 @@ export interface SandBoxConfig {
     auto_allow: boolean;
     network_enabled: boolean
 }
+
+export interface MCPServerConfig {
+    name: string;
+    command?: string;
+    args?: string[];
+    url?: string;
+    transport?: string;
+    headers?: Record<string, string>;
+    env?: Record<string, string>;
+}

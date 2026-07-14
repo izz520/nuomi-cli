@@ -13,6 +13,7 @@ import { PermissionMode } from "./premisson/checker.js";
 const workDir = process.cwd()
 export default function App() {
     const config = loadConfig();
+    console.log("🚀 ~ App ~ config:", config)
     const [llmClient, setLLMClient] = useState<AnthropicClient | OpenAIClient>();
     //当前使用的Provider
     const [selectProvider, setSelectProvider] = useState<ProviderConfig>(config.providers[0])
