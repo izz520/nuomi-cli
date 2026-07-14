@@ -252,10 +252,11 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig }: IChat) => {
     }, [llmClient, workDir])
 
     const formatTool = (toolName: string, toolArg: Record<string, unknown>) => {
-        if (toolName === "ReadFile") {
-            return `${toolName},${toolArg.file_path || ""}`
-        }
-        return ""
+        // if (toolName === "ReadFile") {
+        //     return `${toolName},${toolArg.file_path || ""}`
+        // }
+        // return ""
+        return `${toolName},${JSON.stringify(toolArg) || ""}`
     }
 
     const truncate = (s: string, max: number): string =>
@@ -270,6 +271,7 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig }: IChat) => {
 
     const handleSubmitAsk = (action: PermissionAction) => {
         permissionResolveRef.current?.(action)
+        setPermissionRequest(null)
     }
 
     useInput((input, key) => {
@@ -290,8 +292,8 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig }: IChat) => {
     return (
         <Box flexDirection="column">
             <MessageList messages={messages} isWorking={isWorking} />
-            <PromptInput onSubmit={handleSubmit} />
             {permissionRequest && <PermissionDialog toolName={permissionRequest.toolName} argsSummary={permissionRequest.argsSummary} reason={permissionRequest.toolName} onComplete={handleSubmitAsk} />}
+            <PromptInput isWaiting={!!permissionRequest} onSubmit={handleSubmit} />
             {showExitHint && (
                 <Box marginLeft={2}>
                     <Text dimColor>Press Ctrl+C again to exit.</Text>

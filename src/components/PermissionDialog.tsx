@@ -1,8 +1,3 @@
-// 来源：公众号@小林coding
-// 后端八股网站：xiaolincoding.com
-// Agent网站：xiaolinnote.com
-// 简历模版：jianli.xiaolinnote.com
-
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { brand, symbols } from "../styles.js";
