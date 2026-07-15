@@ -52,9 +52,10 @@ export class EditFileTool implements Tool {
     } catch (err) {
       return { output: `Error reading file: ${(err as Error).message}`, isError: true };
     }
-    //计算出旧字符串在内容中出现的次数
-    const count = content.split(oldString).length - 1;
-    if (count === 0) {
+    // 空文件没有可替换的旧内容，直接用新内容初始化。
+    const isEmptyFile = content.length === 0;
+    const count = isEmptyFile ? 0 : content.split(oldString).length - 1;
+    if (!isEmptyFile && count === 0) {
       //没有出现过，则表示这个内容中不存在需要替换的内容
       return { output: "Error: old_string not found in file", isError: true };
     }
@@ -66,9 +67,11 @@ export class EditFileTool implements Tool {
       };
     }
     //进行内容替换，并存储在newContent
-    const newContent = replaceAll
-      ? content.replaceAll(oldString, newString)
-      : content.replace(oldString, newString);
+    const newContent = isEmptyFile
+      ? newString
+      : replaceAll
+        ? content.replaceAll(oldString, newString)
+        : content.replace(oldString, newString);
     try {
       //开始把新内容替换进去
       writeFileSync(filePath, newContent, "utf-8");

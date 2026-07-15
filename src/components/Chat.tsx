@@ -238,6 +238,7 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
             onPermissionRequest: async (toolName, args, decision) => {
                 return new Promise<"allow" | "deny" | "allowAlways">((resolve) => {
                     permissionResolveRef.current = resolve;
+                    setIsWorking(false)
                     setPermissionRequest({
                         toolName,
                         argsSummary: formatToolArgs(args),
@@ -527,6 +528,8 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
         const resolvePermission = permissionResolveRef.current
         permissionResolveRef.current = null
         setPermissionRequest(null)
+        setWorkingLabel("Running tools")
+        setIsWorking(true)
         resolvePermission?.(action)
     }
 
