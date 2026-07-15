@@ -53,6 +53,12 @@ export class MessageManger {
     addToolResultsMessage(results: ToolResultBlock[]): void {
         this.history.push({ role: "user", content: "", toolResults: results });
     }
+    addSystemReminder(content: string): void {
+        this.history.push({
+            role: "user",
+            content: `<system-reminder>\n${content}\n</system-reminder>`,
+        });
+    }
     getMessages(): IMessage[] {
         return [...this.history];
     }

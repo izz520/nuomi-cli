@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { ProviderConfig, SandBoxConfig } from '../types/provider.js'
+import { MCPServerConfig, ProviderConfig, SandBoxConfig } from '../types/provider.js'
 import { Box, Text, useApp, useInput } from 'ink'
 import MessageList, { ChatMessage, MessagePhase } from './MessageList/index.js'
 import PromptInput from './PromptInput.js'
@@ -18,12 +18,15 @@ import { GrepTool } from '../tools/grep.js'
 import { BashTool } from '../tools/bash.js'
 import { isAbsolute, join, relative } from 'node:path'
 import { PermissionAction, PermissionDialog } from './PermissionDialog.js'
+import { MCPManager } from '../mcp/manger.js'
+import { MCPToolWrapper } from '../mcp/tool-wrapper.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
     workDir: string
     changeProvider: (provider: ProviderConfig) => void
     permMode: PermissionMode
     sandboxConfig: SandBoxConfig
+    mcpServers: MCPServerConfig[]
 }
 
 const FIRST_RESPONSE_TIMEOUT_MS = 60_000
@@ -117,11 +120,13 @@ const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMe
     }
 };
 
-const Chat = ({ llmClient, workDir, permMode, sandboxConfig }: IChat) => {
+const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat) => {
     const { exit } = useApp()
     const isExitingRef = useRef(false)
     const messageMangerRuf = useRef(new MessageManger())
     const toolMangerRuf = useRef(new ToolsManger())
+    const mcpMangerRuf = useRef(new MCPManager())
+    const [mcpInfo, setMcpInfo] = useState<{ servers: string[]; toolCount: number } | null>(null);
     const [messages, dispatchMessages] = useReducer(messagesReducer, [])
     const [isWorking, setIsWorking] = useState(false)
     const [showExitHint, setShowExitHint] = useState(false)
@@ -172,13 +177,6 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig }: IChat) => {
         })
         setIsWorking(true)
         setShowExitHint(false)
-        // 注册工具
-        toolMangerRuf.current.register(new ReadFile())
-        toolMangerRuf.current.register(new WriteFileTool())
-        toolMangerRuf.current.register(new EditFileTool())
-        toolMangerRuf.current.register(new GlobTool())
-        toolMangerRuf.current.register(new GrepTool())
-        toolMangerRuf.current.register(new BashTool())
         //创建接口控制器，用来做取消操作
         const controller = new AbortController();
         abortControllerRef.current = controller;
@@ -408,6 +406,43 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig }: IChat) => {
         resolvePermission?.(action)
     }
 
+    const initManger = useCallback(async () => {
+        //获取全部MCP
+        const result = await mcpMangerRuf.current.connectAll(mcpServers)
+        for (const { serverName, tool } of result.tools) {
+            const client = mcpMangerRuf.current.getClient(serverName);
+            if (client) {
+                toolMangerRuf.current.register(
+                    new MCPToolWrapper(client, serverName, tool)
+                );
+            }
+        }
+        // 如果有错误，则显示出来
+        if (result.errors.length > 0) {
+            dispatchMessages({
+                type: "append_assistant",
+                content: `MCP errors: ${result.errors.map((e) => `${e.serverName}: ${e.error}`).join("; ")}`,
+                phase: "error",
+                merge: false
+            })
+        }
+        if (result.servers.length > 0) {
+            setMcpInfo({ servers: result.servers, toolCount: result.tools.length });
+        }
+        // Inject each server's instructions into the conversation so the
+        // model knows how to use that server's tools. Mirrors Go.
+        for (const { serverName, text } of result.instructions) {
+            messageMangerRuf.current.addSystemReminder(`# MCP Server: ${serverName}\n${text}`);
+        }
+        // 注册工具
+        toolMangerRuf.current.register(new ReadFile())
+        toolMangerRuf.current.register(new WriteFileTool())
+        toolMangerRuf.current.register(new EditFileTool())
+        toolMangerRuf.current.register(new GlobTool())
+        toolMangerRuf.current.register(new GrepTool())
+        toolMangerRuf.current.register(new BashTool())
+    }, [mcpServers])
+
     useInput((input, key) => {
         if (input === "c" && key.ctrl) {
             handleSystemEvent("exit")
@@ -422,6 +457,10 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig }: IChat) => {
             process.off("SIGINT", handleSigint)
         }
     }, [handleSystemEvent])
+
+    useEffect(() => {
+        initManger()
+    }, [mcpServers])
 
     return (
         <Box flexDirection="column">

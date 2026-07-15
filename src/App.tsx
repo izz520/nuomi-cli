@@ -43,6 +43,7 @@ export default function App() {
                 workDir={workDir}
                 permMode={permMode}
                 sandboxConfig={config.sandbox}
+                mcpServers={config.mcp_servers}
             />
         </Box>
     );

@@ -19,7 +19,7 @@ export class ToolsManger {
         const schemas: Record<string, unknown>[] = [];
         //循环所有的tools
         for (const tool of this.tools.values()) {
-            //
+            //如果MCP的延迟加载为true，
             if (tool.deferred && !this.discovered.has(tool.name)) continue;
             //从schema中拿到基础信息
             const base = tool.schema();

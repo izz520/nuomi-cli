@@ -7,6 +7,7 @@ export type AppConfig = {
     providers: ProviderConfig[];
     activeProviderName?: string;
     sandbox: SandBoxConfig
+    mcp_servers: MCPServerConfig[]
 };
 
 const configPath = resolve(process.cwd(), "config.yaml");
