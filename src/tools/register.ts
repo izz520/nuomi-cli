@@ -40,21 +40,6 @@ export class ToolsManger {
         }
         return schemas;
     }
-    searchDeferred(query: string, maxResults = 5): Tool[] {
-        const lower = query.toLowerCase();
-        const matches: Tool[] = [];
-        for (const tool of this.tools.values()) {
-            if (!tool.deferred || this.discovered.has(tool.name)) continue;
-            if (
-                tool.name.toLowerCase().includes(lower) ||
-                tool.description.toLowerCase().includes(lower)
-            ) {
-                matches.push(tool);
-                if (matches.length >= maxResults) break;
-            }
-        }
-        return matches;
-    }
 
     findDeferredByNames(names: string[]): Tool[] {
         return names
@@ -68,5 +53,61 @@ export class ToolsManger {
     unregister(name: string): void {
         this.tools.delete(name);
         this.discovered.delete(name);
+    }
+    searchDeferred(
+        query: string,
+        maxResults = 5
+    ): Tool[] {
+        const keywords = [
+            ...new Set(
+                query
+                    .toLowerCase()
+                    .match(/[\p{L}\p{N}_-]+/gu) ?? []
+            ),
+        ];
+
+        if (keywords.length === 0) {
+            return [];
+        }
+
+        const matches: Array<{
+            tool: Tool;
+            score: number;
+        }> = [];
+
+        for (const tool of this.tools.values()) {
+            if (
+                !tool.deferred ||
+                this.discovered.has(tool.name)
+            ) {
+                continue;
+            }
+
+            const name = tool.name.toLowerCase();
+            const description = tool.description.toLowerCase();
+
+            let score = 0;
+
+            for (const keyword of keywords) {
+                if (name === keyword) {
+                    score += 10;
+                } else if (name.includes(keyword)) {
+                    score += 4;
+                }
+
+                if (description.includes(keyword)) {
+                    score += 1;
+                }
+            }
+
+            if (score > 0) {
+                matches.push({ tool, score });
+            }
+        }
+
+        return matches
+            .sort((a, b) => b.score - a.score)
+            .slice(0, Math.max(1, maxResults))
+            .map(({ tool }) => tool);
     }
 }
