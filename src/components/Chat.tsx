@@ -138,6 +138,7 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
     const isExitingRef = useRef(false)
     const [messages, dispatchMessages] = useReducer(messagesReducer, [])
     const [isWorking, setIsWorking] = useState(false)
+    const [workingLabel, setWorkingLabel] = useState("Thinking")
     const [showExitHint, setShowExitHint] = useState(false)
     const abortControllerRef = useRef<AbortController>(null)
     const permissionResolveRef = useRef<((v: "allow" | "deny" | "allowAlways") => void) | null>(null);
@@ -198,6 +199,7 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
             merge: false
         })
         setIsWorking(true)
+        setWorkingLabel("Thinking")
         setShowExitHint(false)
         //创建接口控制器，用来做取消操作
         const controller = new AbortController();
@@ -272,6 +274,10 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
                 }
 
                 switch (event.type) {
+                    case "thinking_start": {
+                        setIsWorking(false)
+                        break
+                    }
                     case "thinking_text": {
                         setIsWorking(false)
                         dispatchMessages({
@@ -293,10 +299,13 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
                         break
                     }
                     case "tool_use": {
-                        setIsWorking(false)
+                        setWorkingLabel("Preparing tools")
+                        setIsWorking(true)
                         break
                     }
                     case "tool_group_start": {
+                        setWorkingLabel("Running tools")
+                        setIsWorking(true)
                         dispatchMessages({
                             type: "tool_group_started",
                             groupId: event.groupId,
@@ -318,6 +327,25 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
                             output: event.output,
                             isError: event.isError,
                             elapsed: event.elapsed,
+                        })
+                        break
+                    }
+                    case "turn_complete": {
+                        setWorkingLabel("Thinking")
+                        setIsWorking(true)
+                        break
+                    }
+                    case "loop_complete": {
+                        setIsWorking(false)
+                        break
+                    }
+                    case "error": {
+                        setIsWorking(false)
+                        dispatchMessages({
+                            type: "append_assistant",
+                            phase: "error",
+                            content: event.error.message,
+                            merge: false
                         })
                         break
                     }
@@ -607,7 +635,7 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
 
     return (
         <Box flexDirection="column">
-            <MessageList messages={messages} isWorking={isWorking} />
+            <MessageList messages={messages} isWorking={isWorking} workingLabel={workingLabel} />
             {permissionRequest && <PermissionDialog toolName={permissionRequest.toolName} argsSummary={permissionRequest.argsSummary} reason={permissionRequest.reason} onComplete={handleSubmitAsk} />}
             <PromptInput isWaiting={!!permissionRequest} onSubmit={handleSubmit} />
             {showExitHint && (

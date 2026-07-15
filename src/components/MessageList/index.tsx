@@ -3,15 +3,33 @@ import { AssistantMessagePhase } from '../../types/llm.js';
 import { Box, Text } from 'ink';
 import { Marked, type MarkedExtension } from 'marked';
 import { markedTerminal } from 'marked-terminal';
+import chalk from 'chalk';
 import { symbols } from '../../styles.js';
-import LoadingMessage from './LoaidngMessage.js';
+import LoadingMessage from './LoadingMessage.js';
 
-const markdownParser = new Marked(
-    markedTerminal({
-        reflowText: true,
-        paragraph: (text: string) => text
-    }) as unknown as MarkedExtension
-);
+//创建一个markdown的终端插件
+const terminalExtension = markedTerminal({
+    reflowText: true,
+    tab: 0,
+    paragraph: (text: string) => text,
+    codespan: chalk.cyan,
+}) as unknown as MarkedExtension;
+
+const renderTerminalCode = terminalExtension.renderer?.code;
+
+if (renderTerminalCode && terminalExtension.renderer) {
+    terminalExtension.renderer.code = function (token) {
+        const rendered = renderTerminalCode.call(this, token);
+        if (rendered === false || rendered === undefined) return rendered;
+
+        const highlighted = rendered.replace(/\n+$/, "");
+        // 只通过留白和 ANSI 语法高亮区分代码块，不插入可见装饰字符。
+        // 终端复制时会忽略 ANSI 样式，因此得到的仍是原始代码。
+        return `\n${highlighted}\n\n`;
+    };
+}
+
+const markdownParser = new Marked(terminalExtension);
 
 type MessageFormat = "plain" | "markdown" | "command";
 export type MessagePhase = AssistantMessagePhase | "working" | "thinking" | "tool_call" | "error";
@@ -44,6 +62,7 @@ export interface ChatMessage {
 interface MessageProps {
     messages: ChatMessage[];
     isWorking: boolean;
+    workingLabel?: string;
 }
 
 const formatElapsed = (elapsed?: number): string => {
@@ -137,7 +156,7 @@ const ToolGroupMessage = ({ message }: { message: ChatMessage }) => {
 };
 
 
-const MessageList = ({ messages, isWorking }: MessageProps) => {
+const MessageList = ({ messages, isWorking, workingLabel }: MessageProps) => {
     // console.log("🚀 ~ MessageList ~ messages:", messages)
     return (
         <>
@@ -186,7 +205,7 @@ const MessageList = ({ messages, isWorking }: MessageProps) => {
                     );
                 })}
             </Box>
-            {isWorking && <LoadingMessage />}
+            {isWorking && <LoadingMessage key={workingLabel} label={workingLabel} />}
         </>
 
     )
