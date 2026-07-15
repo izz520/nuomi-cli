@@ -64,4 +64,9 @@ export class ToolsManger {
     markDiscovered(name: string): void {
         this.discovered.add(name);
     }
+
+    unregister(name: string): void {
+        this.tools.delete(name);
+        this.discovered.delete(name);
+    }
 }

@@ -24,23 +24,28 @@ export class MCPManager {
             try {
                 //连接MCP Server
                 await client.connect();
+                //获取这个MCP的所有工具
+                const tools = await client.listTools();
+                //尝试获取说明
+                const instructions = client.getInstructions();
                 //把当前MCP存储进clients的Map中
                 this.clients.set(cfg.name, client);
                 //把server里面添加这个MCP
                 result.servers.push(cfg.name);
                 //获取这个MCP的所有工具
-                const tools = await client.listTools();
+                // const tools = await client.listTools();
                 for (const tool of tools) {
                     //循环把当前MCP的工具添加进Tools
                     result.tools.push({ serverName: cfg.name, tool });
                 }
                 //尝试获取说明
-                const instructions = client.getInstructions();
+                // const instructions = client.getInstructions();
                 if (instructions) {
                     //如果有说明的话，就把说明也存储进去
                     result.instructions.push({ serverName: cfg.name, text: instructions });
                 }
             } catch (err) {
+                await client.disconnect();
                 //出错的叭，也同样加进去，只是存进错误
                 result.errors.push({
                     serverName: cfg.name,

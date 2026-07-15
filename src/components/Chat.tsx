@@ -448,12 +448,15 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
     // 创建MCP
     useEffect(() => {
         const mcpManager = new MCPManager();
+        const registeredToolNames: string[] = [];
         let disposed = false;
 
-        void (async () => {
-            //获取全部MCP
+        setMcpInfo(null);
+
+        const initialize = async () => {
             const result = await mcpManager.connectAll(mcpServers);
-            //是否是已经关闭了，关闭了则断开全部连接
+
+            // effect 已清理，不再注册工具或修改状态
             if (disposed) {
                 await mcpManager.disconnectAll();
                 return;
@@ -463,17 +466,24 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
                 const client = mcpManager.getClient(serverName);
                 if (!client) continue;
 
-                toolManager.register(
-                    new MCPToolWrapper(client, serverName, tool)
+                const wrapper = new MCPToolWrapper(
+                    client,
+                    serverName,
+                    tool
                 );
+
+                toolManager.register(wrapper);
+                registeredToolNames.push(wrapper.name);
             }
 
-            // 如果有错误，则显示出来
             if (result.errors.length > 0) {
                 dispatchMessages({
                     type: "append_assistant",
                     content: `MCP errors: ${result.errors
-                        .map(({ serverName, error }) => `${serverName}: ${error}`)
+                        .map(
+                            ({ serverName, error }) =>
+                                `${serverName}: ${error}`
+                        )
                         .join("; ")}`,
                     phase: "error",
                     merge: false,
@@ -492,10 +502,33 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
                     `# MCP Server: ${serverName}\n${text}`
                 );
             }
-        })();
+        };
+
+        void initialize().catch((error: unknown) => {
+            if (disposed) return;
+
+            dispatchMessages({
+                type: "append_assistant",
+                content: `MCP initialization failed: ${error instanceof Error
+                        ? error.message
+                        : String(error)
+                    }`,
+                phase: "error",
+                merge: false,
+            });
+
+            void mcpManager.disconnectAll();
+        });
 
         return () => {
             disposed = true;
+
+            // 删除引用旧 MCP client 的工具
+            for (const name of registeredToolNames) {
+                toolManager.unregister(name);
+            }
+
+            setMcpInfo(null);
             void mcpManager.disconnectAll();
         };
     }, [mcpServers, toolManager, messageManager]);
