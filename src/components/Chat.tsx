@@ -20,6 +20,7 @@ import { isAbsolute, join, relative } from 'node:path'
 import { PermissionAction, PermissionDialog } from './PermissionDialog.js'
 import { MCPManager } from '../mcp/manger.js'
 import { MCPToolWrapper } from '../mcp/tool-wrapper.js'
+import { ToolSearchTool } from '../tools/tool-search.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
     workDir: string
@@ -120,13 +121,21 @@ const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMe
     }
 };
 
+const createToolManager = (): ToolsManger => {
+    const manager = new ToolsManger();
+    manager.register(new ReadFile());
+    manager.register(new WriteFileTool());
+    manager.register(new EditFileTool());
+    manager.register(new GlobTool());
+    manager.register(new GrepTool());
+    manager.register(new BashTool());
+    manager.register(new ToolSearchTool(manager));
+    return manager;
+};
+
 const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat) => {
     const { exit } = useApp()
     const isExitingRef = useRef(false)
-    const messageMangerRuf = useRef(new MessageManger())
-    const toolMangerRuf = useRef(new ToolsManger())
-    const mcpMangerRuf = useRef(new MCPManager())
-    const [mcpInfo, setMcpInfo] = useState<{ servers: string[]; toolCount: number } | null>(null);
     const [messages, dispatchMessages] = useReducer(messagesReducer, [])
     const [isWorking, setIsWorking] = useState(false)
     const [showExitHint, setShowExitHint] = useState(false)
@@ -149,6 +158,19 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
     const sandboxAutoAllowRef = useRef(sandboxConfig.auto_allow ?? false);
     // 沙盒是否允许联网
     const sandboxNetworkEnabled = sandboxConfig.network_enabled ?? false;
+
+    const [mcpInfo, setMcpInfo] = useState<{ servers: string[]; toolCount: number } | null>(null);
+    const messageManagerRef = useRef<MessageManger | null>(null);
+    const toolManagerRef = useRef<ToolsManger | null>(null);
+    if (messageManagerRef.current === null) {
+        messageManagerRef.current = new MessageManger();
+    }
+    if (toolManagerRef.current === null) {
+        toolManagerRef.current = createToolManager();
+    }
+    const messageManager = messageManagerRef.current;
+    const toolManager = toolManagerRef.current;
+
 
     const handleSystemEvent = useCallback((event: SystemEvent) => {
         switch (event) {
@@ -186,7 +208,7 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
         checker.sandboxEnabled = sandboxEnabledRef.current;
         checker.sandboxAutoAllow = sandboxAutoAllowRef.current;
         // 将沙箱注入 BashTool
-        const bashTool = toolMangerRuf.current.get("Bash") as BashTool | undefined;
+        const bashTool = toolManager.get("Bash") as BashTool | undefined;
         if (bashTool && sandboxEnabledRef.current) {
             bashTool.sandbox = sandboxRef.current;
             bashTool.sandboxConfig = {
@@ -201,10 +223,12 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
         } else if (bashTool) {
             bashTool.sandbox = null;
         }
+        console.log("toolManager", toolManager);
+
         const agent = new Agent({
             client: llmClient,
-            messageManger: messageMangerRuf.current,
-            toolManger: toolMangerRuf.current,
+            messageManger: messageManager,
+            toolManger: toolManager,
             workDir: workDir,
             abortSignal: controller.signal,
             permissionCheck: checker,
@@ -221,7 +245,7 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
             },
         })
         dispatchMessages({ type: "append_user", content: message })
-        messageMangerRuf.current.addUserMessage(message)
+        messageManager.addUserMessage(message)
 
         let hasReceivedResponse = false
         let didTimeout = false
@@ -406,43 +430,6 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
         resolvePermission?.(action)
     }
 
-    const initManger = useCallback(async () => {
-        //获取全部MCP
-        const result = await mcpMangerRuf.current.connectAll(mcpServers)
-        for (const { serverName, tool } of result.tools) {
-            const client = mcpMangerRuf.current.getClient(serverName);
-            if (client) {
-                toolMangerRuf.current.register(
-                    new MCPToolWrapper(client, serverName, tool)
-                );
-            }
-        }
-        // 如果有错误，则显示出来
-        if (result.errors.length > 0) {
-            dispatchMessages({
-                type: "append_assistant",
-                content: `MCP errors: ${result.errors.map((e) => `${e.serverName}: ${e.error}`).join("; ")}`,
-                phase: "error",
-                merge: false
-            })
-        }
-        if (result.servers.length > 0) {
-            setMcpInfo({ servers: result.servers, toolCount: result.tools.length });
-        }
-        // Inject each server's instructions into the conversation so the
-        // model knows how to use that server's tools. Mirrors Go.
-        for (const { serverName, text } of result.instructions) {
-            messageMangerRuf.current.addSystemReminder(`# MCP Server: ${serverName}\n${text}`);
-        }
-        // 注册工具
-        toolMangerRuf.current.register(new ReadFile())
-        toolMangerRuf.current.register(new WriteFileTool())
-        toolMangerRuf.current.register(new EditFileTool())
-        toolMangerRuf.current.register(new GlobTool())
-        toolMangerRuf.current.register(new GrepTool())
-        toolMangerRuf.current.register(new BashTool())
-    }, [mcpServers])
-
     useInput((input, key) => {
         if (input === "c" && key.ctrl) {
             handleSystemEvent("exit")
@@ -458,9 +445,60 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
         }
     }, [handleSystemEvent])
 
+    // 创建MCP
     useEffect(() => {
-        initManger()
-    }, [mcpServers])
+        const mcpManager = new MCPManager();
+        let disposed = false;
+
+        void (async () => {
+            //获取全部MCP
+            const result = await mcpManager.connectAll(mcpServers);
+            //是否是已经关闭了，关闭了则断开全部连接
+            if (disposed) {
+                await mcpManager.disconnectAll();
+                return;
+            }
+
+            for (const { serverName, tool } of result.tools) {
+                const client = mcpManager.getClient(serverName);
+                if (!client) continue;
+
+                toolManager.register(
+                    new MCPToolWrapper(client, serverName, tool)
+                );
+            }
+
+            // 如果有错误，则显示出来
+            if (result.errors.length > 0) {
+                dispatchMessages({
+                    type: "append_assistant",
+                    content: `MCP errors: ${result.errors
+                        .map(({ serverName, error }) => `${serverName}: ${error}`)
+                        .join("; ")}`,
+                    phase: "error",
+                    merge: false,
+                });
+            }
+
+            if (result.servers.length > 0) {
+                setMcpInfo({
+                    servers: result.servers,
+                    toolCount: result.tools.length,
+                });
+            }
+
+            for (const { serverName, text } of result.instructions) {
+                messageManager.addSystemReminder(
+                    `# MCP Server: ${serverName}\n${text}`
+                );
+            }
+        })();
+
+        return () => {
+            disposed = true;
+            void mcpManager.disconnectAll();
+        };
+    }, [mcpServers, toolManager, messageManager]);
 
     return (
         <Box flexDirection="column">

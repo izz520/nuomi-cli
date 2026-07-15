@@ -1,5 +1,4 @@
 import OpenAI from "openai";
-import { Stream } from "openai/streaming";
 import { AssistantMessagePhase, StreamEvent } from "../types/llm.js";
 import { ProviderConfig } from "../types/provider.js";
 import { IMessage } from "../types/messsage.js";
@@ -174,7 +173,7 @@ class OpenAIClient {
                     }
                     if (item.type === "function_call") {
                         //工具调用输出参数完成
-                        // console.log(`工具调用：${tool.toolName}-${tool.toolJson}`);
+                        console.log(`工具调用：${tool.toolName}-${tool.toolJson}`);
 
                         let args: Record<string, unknown> = {};
                         if (tool.toolJson) {

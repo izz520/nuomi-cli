@@ -51,11 +51,12 @@ export class Agent {
     }
     //开始循环
     async *startLoop(): AsyncGenerator<AgentEvent> {
-        let toolSchemas = this.toolManger.getAllSchemas();
         // console.log("🚀 ~ Agent ~ startLoop ~ toolSchemas:", toolSchemas)
         let looping = true;
         //开始循环Loop
         while (looping) {
+            let toolSchemas = this.toolManger.getAllSchemas();
+
             // console.log("进入loop");
             //回答的内容
             let answer = ""

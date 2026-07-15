@@ -82,7 +82,7 @@ function normalizeProvider(provider: RawProviderConfig, index: number): Provider
 
 export function loadConfig(): AppConfig {
     const config = parseConfigYaml(readFileSync(configPath, "utf8"));
-    console.log("🚀 ~ loadConfig ~ config:", config)
+    // console.log("🚀 ~ loadConfig ~ config:", config)
     const providers = config.providers.map(normalizeProvider);
     return {
         ...config,

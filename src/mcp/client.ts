@@ -57,7 +57,7 @@ export class MCPClient {
         args: this.config.args ?? [],
         //环境变量
         env,
-        // stderr: "ignore",
+        stderr: "ignore",
       });
     } else if (this.config.url) {
       //如果存在http，则走StreamableHTTP或者SSE

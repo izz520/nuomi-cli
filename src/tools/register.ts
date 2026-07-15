@@ -40,40 +40,28 @@ export class ToolsManger {
         }
         return schemas;
     }
-    // //执行工具调用
-    // async execute(toolId: string, toolName: string, args: Record<string, unknown>) {
-    //     //1.判断工具是否已经注册
-    //     const tool = this.get(toolName)
-    //     const start = Date.now();
-    //     if (!tool) {
-    //         return {
-    //             toolId: toolId,
-    //             toolName: toolName,
-    //             result: {
-    //                 output: `Error: unknown tool '${toolName}'`,
-    //                 isError: true,
-    //             },
-    //             elapsed: 0,
-    //         };
-    //     }
-    //     try {
-    //         const result = await tool.execute(args);
-    //         return {
-    //             toolId: toolId,
-    //             toolName: toolName,
-    //             result,
-    //             elapsed: (Date.now() - start) / 1000,
-    //         };
-    //     } catch (err) {
-    //         return {
-    //             toolId: toolId,
-    //             toolName: toolName,
-    //             result: {
-    //                 output: `Error executing ${toolName}: ${(err as Error).message}`,
-    //                 isError: true,
-    //             },
-    //             elapsed: (Date.now() - start) / 1000,
-    //         };
-    //     }
-    // }
+    searchDeferred(query: string, maxResults = 5): Tool[] {
+        const lower = query.toLowerCase();
+        const matches: Tool[] = [];
+        for (const tool of this.tools.values()) {
+            if (!tool.deferred || this.discovered.has(tool.name)) continue;
+            if (
+                tool.name.toLowerCase().includes(lower) ||
+                tool.description.toLowerCase().includes(lower)
+            ) {
+                matches.push(tool);
+                if (matches.length >= maxResults) break;
+            }
+        }
+        return matches;
+    }
+
+    findDeferredByNames(names: string[]): Tool[] {
+        return names
+            .map((n) => this.tools.get(n))
+            .filter((t): t is Tool => t !== undefined && t.deferred === true);
+    }
+    markDiscovered(name: string): void {
+        this.discovered.add(name);
+    }
 }
