@@ -350,6 +350,43 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
         return relative(baseDir, value) || ".";
     };
 
+    const parseMcpToolName = (toolName: string): { server: string; tool: string } | null => {
+        const match = toolName.match(/^mcp__(.+?)__(.+)$/);
+        return match ? { server: match[1], tool: match[2] } : null;
+    };
+
+    const humanizeIdentifier = (value: string): string =>
+        value
+            .replace(/[-_]+/g, " ")
+            .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+    const formatMcpServer = (server: string): string =>
+        server.toLowerCase() === "context7" ? "Context7" : humanizeIdentifier(server);
+
+    const formatMcpTool = (
+        server: string,
+        tool: string,
+        args: Record<string, unknown>
+    ): string => {
+        const serverLabel = formatMcpServer(server);
+
+        if (tool === "resolve-library-id") {
+            const libraryName = String(args.libraryName ?? args.library_name ?? "").trim();
+            return libraryName
+                ? `Resolve library: ${truncate(libraryName, 72)}`
+                : `Resolve library with ${serverLabel}`;
+        }
+
+        if (tool === "query-docs") {
+            const libraryId = String(args.libraryId ?? args.library_id ?? "").trim();
+            return libraryId
+                ? `Search docs: ${truncate(libraryId, 72)}`
+                : `Search documentation with ${serverLabel}`;
+        }
+
+        return humanizeIdentifier(tool);
+    };
+
     const formatTool = (
         toolName: string,
         args: Record<string, unknown>,
@@ -357,6 +394,11 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
     ): string => {
         const filePath = formatPath(args.file_path ?? args.path, baseDir);
         const pattern = truncate(String(args.pattern ?? ""), 72);
+        const mcpTool = parseMcpToolName(toolName);
+
+        if (mcpTool) {
+            return formatMcpTool(mcpTool.server, mcpTool.tool, args);
+        }
 
         switch (toolName) {
             case "ReadFile":
@@ -373,6 +415,14 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
             }
             case "Bash":
                 return `$ ${truncate(String(args.command ?? ""), 96)}`;
+            case "ToolSearch": {
+                const query = String(args.query ?? "").trim();
+                if (!query) return "Discover MCP tools";
+                if (query.startsWith("select:")) {
+                    return `Load MCP tools: ${truncate(query.slice(7), 72)}`;
+                }
+                return `Find MCP tools: ${truncate(query, 72)}`;
+            }
             default:
                 return toolName;
         }
@@ -392,6 +442,17 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
         tools: Array<{ toolName: string; args: Record<string, unknown> }>
     ): string => {
         const names = tools.map((tool) => tool.toolName);
+        const mcpTools = names.map(parseMcpToolName);
+        const parsedMcpTools = mcpTools.filter((tool): tool is NonNullable<typeof tool> => tool !== null);
+
+        if (names.every((name) => name === "ToolSearch")) return "Discover MCP tools";
+        if (parsedMcpTools.length > 0 && parsedMcpTools.length === mcpTools.length) {
+            const servers = new Set(parsedMcpTools.map((tool) => tool.server));
+            if (servers.size === 1) {
+                return `Use ${formatMcpServer(parsedMcpTools[0].server)}`;
+            }
+            return "Use MCP tools";
+        }
 
         if (names.every((name) => name === "Glob" || name === "Grep")) {
             return isMetadataSearch(tools) ? "Search project metadata" : "Search project files";
@@ -408,6 +469,17 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
         tools: Array<{ toolName: string; args: Record<string, unknown> }>
     ): string => {
         const names = tools.map((tool) => tool.toolName);
+        const mcpTools = names.map(parseMcpToolName);
+        const parsedMcpTools = mcpTools.filter((tool): tool is NonNullable<typeof tool> => tool !== null);
+
+        if (names.every((name) => name === "ToolSearch")) return "MCP tool discovery complete";
+        if (parsedMcpTools.length > 0 && parsedMcpTools.length === mcpTools.length) {
+            const servers = new Set(parsedMcpTools.map((tool) => tool.server));
+            if (servers.size === 1) {
+                return `${formatMcpServer(parsedMcpTools[0].server)} call complete`;
+            }
+            return "MCP calls complete";
+        }
 
         if (names.every((name) => name === "Glob" || name === "Grep")) return "Search complete";
         if (names.every((name) => name === "ReadFile")) return "Files read";

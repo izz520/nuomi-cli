@@ -65,14 +65,17 @@ export class ToolSearchTool implements Tool {
     }
 
     // Keyword search
+    //关键词搜索到工具列表
     const tools = this.registry.searchDeferred(query, maxResults);
     if (tools.length === 0) {
+      //如果工具列表为空，则表示没有一个匹配到的
       return { output: "No deferred tools matched the query.", isError: false };
     }
-
+    //匹配到了工具，然后格式化成工具名：工具简单描述
     const lines = tools.map(
       (t) => `- ${t.name}: ${t.description.slice(0, 100)}`
     );
+    //返回给AI
     return { output: lines.join("\n"), isError: false };
   }
 }

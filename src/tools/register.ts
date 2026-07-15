@@ -58,6 +58,7 @@ export class ToolsManger {
         query: string,
         maxResults = 5
     ): Tool[] {
+        //全部变成小写，然后去重
         const keywords = [
             ...new Set(
                 query
@@ -65,46 +66,50 @@ export class ToolsManger {
                     .match(/[\p{L}\p{N}_-]+/gu) ?? []
             ),
         ];
-
+        //如果没有拆分出关键词则直接返回空
         if (keywords.length === 0) {
             return [];
         }
-
         const matches: Array<{
             tool: Tool;
             score: number;
         }> = [];
-
+        //循环当前的工具列表的实例
         for (const tool of this.tools.values()) {
+            //如果工具已经被加载，或者激活里面有的话，直接跳过
             if (
                 !tool.deferred ||
                 this.discovered.has(tool.name)
             ) {
                 continue;
             }
-
+            //把工具名称全部转成小写
             const name = tool.name.toLowerCase();
+            //把描述也转成小写
             const description = tool.description.toLowerCase();
-
+            //
             let score = 0;
-
+            //循环关键词
             for (const keyword of keywords) {
+                //如果关键词跟工具名称匹配
                 if (name === keyword) {
+                    //分组+10分
                     score += 10;
                 } else if (name.includes(keyword)) {
+                    //包含了的话+4分
                     score += 4;
                 }
-
+                //描述有关键词也+1分
                 if (description.includes(keyword)) {
                     score += 1;
                 }
             }
-
+            //如果分数大于0，表示有点关系
             if (score > 0) {
                 matches.push({ tool, score });
             }
         }
-
+        //然后按照分数大小进行排序并且返回
         return matches
             .sort((a, b) => b.score - a.score)
             .slice(0, Math.max(1, maxResults))
