@@ -3,7 +3,7 @@ import { AssistantMessagePhase, StreamEvent } from "../types/llm.js";
 import { ProviderConfig } from "../types/provider.js";
 import { IMessage } from "../types/messsage.js";
 import { Tool } from "../types/tools.js";
-import { MessageManger } from "../messageManger/message.js";
+import { MessageManager } from "../messageManager/message.js";
 import writeLog from "../utils/writeLog.js";
 import { convortOpenAIMessage } from "./convort-message.js";
 import { EasyInputMessage } from "openai/resources/responses/responses.js";
@@ -22,9 +22,9 @@ class OpenAIClient {
         this.systemPrompt = systemPrompt
     }
 
-    async *sendMessageStream(messageManger: MessageManger, tools: Record<string, unknown>[], abortSignal: AbortSignal): AsyncGenerator<StreamEvent> {
+    async *sendMessageStream(messageManager: MessageManager, tools: Record<string, unknown>[], abortSignal?: AbortSignal): AsyncGenerator<StreamEvent> {
         //拿到消息管理器的所有消息记录
-        const formatMessages = convortOpenAIMessage(messageManger.getMessages())
+        const formatMessages = convortOpenAIMessage(messageManager.getMessages())
         //格式化成OpenAi格式的消息
         const input: OpenAI.Responses.ResponseCreateParamsStreaming["input"] = [];
         //向消息的第一条添加system系统提示词

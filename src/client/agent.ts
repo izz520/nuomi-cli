@@ -1,6 +1,9 @@
+import { AutoCompactRetryCount, compactContextMessage } from "../compact/message-compact.js";
+import { RecoveryManager } from "../compact/recovery.js";
 import { ToolResultCompactStateManger } from "../compact/state.js";
 import { compactToolResults } from "../compact/tool-compact.js";
-import { MessageManger } from "../messageManger/message.js";
+import { buildMessageManager } from "../messageManager/buildMessage.js";
+import { MessageManager } from "../messageManager/message.js";
 import { Decision, PermissionChecker } from "../premisson/checker.js";
 import { ToolsManger } from "../tools/register.js";
 import { AgentEvent } from "../types/agent.js";
@@ -15,12 +18,14 @@ import { ToolExecutManger } from "./tool-execut-manger.js";
 
 interface IAgentConfig {
     client: AnthropicClient | OpenAIClient,
-    messageManger: MessageManger,
+    messageManager: MessageManager,
     toolManger: ToolsManger,
     workDir: string,
     abortSignal: AbortSignal,
     permissionCheck: PermissionChecker
     toolResultCompactManger: ToolResultCompactStateManger
+    contextWindow: number | undefined
+    recoveryManager: RecoveryManager
     onPermissionRequest?: (
         toolName: string,
         args: Record<string, unknown>,
@@ -34,7 +39,7 @@ const MAX_OUTPUT_TOKENS_RECOVERIES = 3;
 // toolresult budget handles spilling separately; this is a final safety cap.
 const MAX_OUTPUT_CHARS = 10000;
 export class Agent {
-    private messageManger: MessageManger
+    private messageManager: MessageManager
     private client: AnthropicClient | OpenAIClient
     private toolManger: ToolsManger
     private usageAnchor: UsageAnchor | null = null;
@@ -42,15 +47,21 @@ export class Agent {
     private workDir: string;
     private permissionCheck: PermissionChecker;
     private toolResultCompactManger: ToolResultCompactStateManger;
+    private contextWindow: number
+    private maxOutput = 8192
+    private autoCompactRetryCount = new AutoCompactRetryCount()
+    private recoveryManager: RecoveryManager
     private onPermissionRequest: IAgentConfig['onPermissionRequest']
-    constructor({ client, messageManger, workDir, abortSignal, permissionCheck, toolManger, toolResultCompactManger, onPermissionRequest }: IAgentConfig) {
+    constructor({ client, messageManager, workDir, abortSignal, permissionCheck, toolManger, toolResultCompactManger, contextWindow, recoveryManager, onPermissionRequest }: IAgentConfig) {
         this.client = client
-        this.messageManger = messageManger
+        this.messageManager = messageManager
         this.toolManger = toolManger
         this.workDir = workDir
         this.abortSignal = abortSignal
         this.permissionCheck = permissionCheck
         this.toolResultCompactManger = toolResultCompactManger
+        this.contextWindow = contextWindow ?? 200000
+        this.recoveryManager = recoveryManager
         this.onPermissionRequest = onPermissionRequest
 
     }
@@ -61,7 +72,8 @@ export class Agent {
         //开始循环Loop
         while (looping) {
             let toolSchemas = this.toolManger.getAllSchemas();
-
+            //拿到所有工具的名称
+            const toolSchemaNames = this.toolManger.listTools().map((t) => t.name);
             // console.log("进入loop");
             //回答的内容
             let answer = ""
@@ -73,16 +85,50 @@ export class Agent {
             //结束标识
             let stopReason = "end_turn"
             //拿到当前的会话token总数
-            const sentMessageCount = this.messageManger.len();
+            const sentMessageCount = this.messageManager.len();
             //记录工具调用次数
             let consecutiveUnknown = 0;
             // ✨ 这里要开始压缩
+            // 先压缩工具调用结果
             const compactToolResultMessage = compactToolResults(
-                this.messageManger.getMessages(), this.workDir, this.toolResultCompactManger
+                this.messageManager.getMessages(), this.workDir, this.toolResultCompactManger
+            );
+            // 再压缩上下文消息
+            const compactMessageResult = await compactContextMessage(
+                this.messageManager,
+                this.client,
+                this.contextWindow,
+                this.maxOutput,
+                this.autoCompactRetryCount,
+                this.recoveryManager,
+                toolSchemaNames,
+                this.usageAnchor,
+                "",
+                compactToolResultMessage
+            )
+            if (compactMessageResult.message) {
+                // 如果消息有内容的话，就流失传输给上层
+                yield { type: "compact", message: compactMessageResult.message, boundary: compactMessageResult.boundary };
+            }
+            if (compactMessageResult.compacted) {
+                //压缩成功后，把usageAnchor置空，让下次会话的精准计算再来覆盖
+                this.usageAnchor = null;
+            }
+            /**
+             * 这里为什么要构建一个新的原因：
+             * 1.this.messageManager的消息列表其实在compactContextMessage就已经改成了压缩后的了
+             * 2.但是有几条保留的消息，可能还会存在有工具调用，所以就从新再压缩了一次工具调用
+             * 3.担心消息列表会出错，所以重新构造了
+             * 其实这里不太理解，为什么要这样？？？
+             */
+            const compactMessageManager = buildMessageManager(
+                compactMessageResult.compacted
+                    ? compactToolResults(this.messageManager.getMessages(), this.workDir, this.toolResultCompactManger)
+                    : compactToolResultMessage
             );
 
             // 发送消息给AI
-            const result = this.client.sendMessageStream(this.messageManger, toolSchemas, this.abortSignal)
+            const result = this.client.sendMessageStream(compactMessageManager, toolSchemas, this.abortSignal)
             for await (const message of result) {
                 switch (message.type) {
                     case "thinking_delta": {
@@ -140,16 +186,14 @@ export class Agent {
                     }
                     case "stream_end": {
                         stopReason = message.stopReason;
-                        // Record the real-token anchor: the full context size the API
-                        // just reported (input + cache_read + cache_creation + output)
-                        // plus the message count it covered. The next manageContext()
-                        // trusts this baseline and only char-estimates the tail beyond it.
                         this.usageAnchor = {
+                            // 计算精准的当前已经消耗的token
                             baselineTokens:
                                 message.usage.inputTokens +
                                 message.usage.cacheReadInputTokens +
                                 message.usage.cacheCreationInputTokens +
                                 message.usage.outputTokens,
+                            // 当前消息的总条数
                             anchorCount: sentMessageCount,
                         };
                         yield { type: "usage", usage: message.usage };
@@ -158,7 +202,7 @@ export class Agent {
                 }
             }
             //把本次AI回答的问题加入到会话管理器中
-            this.messageManger.addAssistantFull(answer, thinkingBlocks, toolUses);
+            this.messageManager.addAssistantFull(answer, thinkingBlocks, toolUses);
             //判断是否有工具调用
             if (toolUses.length > 0) {
                 // console.log("有工具调用");
@@ -214,7 +258,7 @@ export class Agent {
                         });
                     }
                 }
-                this.messageManger.addToolResultsMessage(toolResults);
+                this.messageManager.addToolResultsMessage(toolResults);
                 yield { type: "turn_complete" };
             } else {
                 looping = false

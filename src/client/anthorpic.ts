@@ -1,7 +1,7 @@
 import { Anthropic } from "@anthropic-ai/sdk"
 import { StreamEvent } from "../types/llm.js";
 import { ProviderConfig } from "../types/provider.js";
-import { MessageManger } from "../messageManger/message.js";
+import { MessageManager } from "../messageManager/message.js";
 import writeLog from "../utils/writeLog.js";
 import { convortAnthropicMessage } from "./convort-message.js";
 
@@ -21,11 +21,11 @@ class AnthropicClient {
 
 
 
-    async *sendMessageStream(messageManger: MessageManger, tools: Record<string, unknown>[], abortSignal: AbortSignal): AsyncGenerator<StreamEvent> {
+    async *sendMessageStream(messageManager: MessageManager, tools: Record<string, unknown>[], abortSignal?: AbortSignal): AsyncGenerator<StreamEvent> {
         // console.log("发送消息给Agent");
 
         //拿到全部消息
-        const message = messageManger.getMessages()
+        const message = messageManager.getMessages()
         const convrtMessage = convortAnthropicMessage(message)
         // console.log("🚀 ~ AnthropicClient ~ sendMessageStream ~ message:", message)
         // writeLog(convrtMessage)
@@ -54,7 +54,7 @@ class AnthropicClient {
         // writeLog(params)
         //发送消息
         const result = this.client.messages.stream(params, {
-            signal: abortSignal || {}
+            ...(abortSignal ? { signal: abortSignal } : {}),
         })
         //思考
         let isThinking = false;

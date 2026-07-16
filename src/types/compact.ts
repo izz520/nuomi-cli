@@ -1,7 +1,6 @@
 export interface UsageAnchor {
-    // input + cache_read + cache_creation + output from the last real API usage.
+    //经过AI精准计算的当前会话已消耗token
     baselineTokens: number;
-    // conversation.len() at the moment the anchor was recorded; only messages
-    // beyond this index are estimated incrementally.
+    //当前会话的总条数
     anchorCount: number;
 }

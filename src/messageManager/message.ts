@@ -2,7 +2,7 @@ import { IMessage, ThinkingBlock, ToolResultBlock, ToolUseBlock } from "../types
 /**
  * AI的聊天历史记录
  */
-export class MessageManger {
+export class MessageManager {
     private history: IMessage[] = []
     //添加一个用户消息
     addUserMessage(content: string): void {
@@ -64,5 +64,12 @@ export class MessageManger {
     }
     len(): number {
         return this.history.length;
+    }
+    // 把消息记录替换成压缩后的消息记录
+    replaceWithCompacted(summaryContent: string, keep: IMessage[]): void {
+        this.history = [
+            { role: "user", content: summaryContent },
+            ...keep,
+        ];
     }
 }

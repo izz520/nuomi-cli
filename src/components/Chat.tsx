@@ -6,7 +6,7 @@ import PromptInput from './PromptInput.js'
 import AnthropicClient from '../client/anthorpic.js'
 import OpenAIClient from '../client/openai.js'
 import { Agent } from '../client/agent.js'
-import { MessageManger } from '../messageManger/message.js'
+import { MessageManager } from '../messageManager/message.js'
 import { ToolsManger } from '../tools/register.js'
 import { ReadFile } from '../tools/read-file.js'
 import { createSandbox, Sandbox } from '../sandbox/index.js'
@@ -22,6 +22,7 @@ import { MCPManager } from '../mcp/manger.js'
 import { MCPToolWrapper } from '../mcp/tool-wrapper.js'
 import { ToolSearchTool } from '../tools/tool-search.js'
 import { ToolResultCompactStateManger } from '../compact/state.js'
+import { RecoveryManager } from '../compact/recovery.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
     workDir: string
@@ -135,7 +136,7 @@ const createToolManager = (): ToolsManger => {
     return manager;
 };
 
-const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat) => {
+const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, contextWindow }: IChat) => {
     const { exit } = useApp()
     const isExitingRef = useRef(false)
     const [messages, dispatchMessages] = useReducer(messagesReducer, [])
@@ -163,11 +164,12 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
     const sandboxNetworkEnabled = sandboxConfig.network_enabled ?? false;
 
     const [mcpInfo, setMcpInfo] = useState<{ servers: string[]; toolCount: number } | null>(null);
-    const messageManagerRef = useRef<MessageManger | null>(null);
+    const messageManagerRef = useRef<MessageManager | null>(null);
     const toolManagerRef = useRef<ToolsManger | null>(null);
+    const recoveryManagerRef = useRef<RecoveryManager | null>(null)
     const toolResultCompactMangerRef = useRef<ToolResultCompactStateManger | null>(null);
     if (messageManagerRef.current === null) {
-        messageManagerRef.current = new MessageManger();
+        messageManagerRef.current = new MessageManager();
     }
     if (toolManagerRef.current === null) {
         toolManagerRef.current = createToolManager();
@@ -175,10 +177,13 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
     if (toolResultCompactMangerRef.current === null) {
         toolResultCompactMangerRef.current = new ToolResultCompactStateManger()
     }
+    if (recoveryManagerRef.current === null) {
+        recoveryManagerRef.current = new RecoveryManager()
+    }
     const messageManager = messageManagerRef.current;
     const toolManager = toolManagerRef.current;
     const toolResultCompactManger = toolResultCompactMangerRef.current
-
+    const recoveryManager = recoveryManagerRef.current
 
     const handleSystemEvent = useCallback((event: SystemEvent) => {
         switch (event) {
@@ -236,12 +241,14 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
 
         const agent = new Agent({
             client: llmClient,
-            messageManger: messageManager,
+            messageManager: messageManager,
             toolManger: toolManager,
             toolResultCompactManger: toolResultCompactManger,
             workDir: workDir,
             abortSignal: controller.signal,
             permissionCheck: checker,
+            contextWindow: contextWindow,
+            recoveryManager: recoveryManager,
             // 权限异步等待用户选择后返回结果
             onPermissionRequest: async (toolName, args, decision) => {
                 return new Promise<"allow" | "deny" | "allowAlways">((resolve) => {

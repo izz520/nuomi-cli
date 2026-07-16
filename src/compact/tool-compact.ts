@@ -9,7 +9,7 @@ const TOOL_RESULT_PREVIEW = 2000
 
 // 压缩所有会话的所有工具调用结果
 export const compactToolResults = (messages: IMessage[], workDir: string, state: ToolResultCompactStateManger) => {
-    const results = []
+    const results: IMessage[] = []
     for (const message of messages) {
         //浅拷贝一下，防止修改原始数据
         const newMessage = { ...message }
@@ -37,6 +37,7 @@ export const compactToolResults = (messages: IMessage[], workDir: string, state:
             })
         }
     }
+    return results
 }
 
 // 将原始调用结果存储到文件里
