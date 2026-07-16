@@ -29,6 +29,7 @@ interface IChat {
     permMode: PermissionMode
     sandboxConfig: SandBoxConfig
     mcpServers: MCPServerConfig[]
+    contextWindow: number | undefined
 }
 
 const FIRST_RESPONSE_TIMEOUT_MS = 60_000

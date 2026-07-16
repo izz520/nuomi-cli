@@ -45,6 +45,7 @@ export default function App() {
                 permMode={permMode}
                 sandboxConfig={config.sandbox}
                 mcpServers={config.mcp_servers}
+                contextWindow={selectProvider.context_window}
             />
         </Box>
     );
