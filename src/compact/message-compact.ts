@@ -328,3 +328,33 @@ function hasToolResultMessage(msg: IMessage): boolean {
     // 判断消息是否是工具调用结果的消息
     return msg.role === "user" && !!msg.toolResults && msg.toolResults.length > 0;
 }
+
+function formatMessageForSummary(message: IMessage): string {
+    const sections: string[] = [];
+
+    if (message.content) {
+        sections.push(`[${message.role}]\n${message.content}`);
+    } else {
+        sections.push(`[${message.role}]`);
+    }
+
+    if (message.toolUses?.length) {
+        for (const toolUse of message.toolUses) {
+            sections.push(
+                `[tool_use id=${toolUse.toolUseId} name=${toolUse.toolName}]\n` +
+                JSON.stringify(toolUse.arguments, null, 2)
+            );
+        }
+    }
+
+    if (message.toolResults?.length) {
+        for (const toolResult of message.toolResults) {
+            sections.push(
+                `[tool_result id=${toolResult.toolUseId} error=${toolResult.isError}]\n` +
+                toolResult.content
+            );
+        }
+    }
+
+    return sections.join("\n");
+}

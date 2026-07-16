@@ -84,8 +84,6 @@ export class Agent {
             let toolUses: ToolUseBlock[] = []
             //结束标识
             let stopReason = "end_turn"
-            //拿到当前的会话token总数
-            const sentMessageCount = this.messageManager.len();
             //记录工具调用次数
             let consecutiveUnknown = 0;
             // ✨ 这里要开始压缩
@@ -126,6 +124,9 @@ export class Agent {
                     ? compactToolResults(this.messageManager.getMessages(), this.workDir, this.toolResultCompactManger)
                     : compactToolResultMessage
             );
+
+            //拿到当前的会话token总数
+            const sentMessageCount = this.messageManager.len();
 
             // 发送消息给AI
             const result = this.client.sendMessageStream(compactMessageManager, toolSchemas, this.abortSignal)
@@ -187,13 +188,10 @@ export class Agent {
                     case "stream_end": {
                         stopReason = message.stopReason;
                         this.usageAnchor = {
-                            // 计算精准的当前已经消耗的token
                             baselineTokens:
                                 message.usage.inputTokens +
                                 message.usage.cacheReadInputTokens +
-                                message.usage.cacheCreationInputTokens +
-                                message.usage.outputTokens,
-                            // 当前消息的总条数
+                                message.usage.cacheCreationInputTokens,
                             anchorCount: sentMessageCount,
                         };
                         yield { type: "usage", usage: message.usage };

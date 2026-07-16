@@ -84,6 +84,14 @@ class AnthropicClient {
             switch (messageStreamEvent.type) {
                 case "message_start": {
                     // console.log(`消息开始,初始输入Token:${messageStreamEvent.message.usage.input_tokens}，输出Token:${messageStreamEvent.message.usage.output_tokens}`);
+                    if (messageStreamEvent.message.usage) {
+                        inputTokens = messageStreamEvent.message.usage.input_tokens;
+                        outputTokens = messageStreamEvent.message.usage.output_tokens;
+                        cacheReadInputTokens =
+                            messageStreamEvent.message.usage.cache_read_input_tokens ?? 0;
+                        cacheCreationInputTokens =
+                            messageStreamEvent.message.usage.cache_creation_input_tokens ?? 0;
+                    }
                     break;
                 }
                 case "content_block_start": {
@@ -194,12 +202,21 @@ class AnthropicClient {
                     break;
                 }
                 case "message_delta": {
-                    const usage = messageStreamEvent.usage
-                    console.log(`本次对话结束，本轮消耗的输入Token:${usage.input_tokens},输出Token:${usage.output_tokens}`);
-                    inputTokens = usage.input_tokens ?? 0
-                    outputTokens = usage.output_tokens ?? 0
-                    cacheCreationInputTokens = usage.cache_creation_input_tokens ?? 0
-                    cacheReadInputTokens = usage.cache_read_input_tokens ?? 0
+                    if (messageStreamEvent.delta.stop_reason) {
+                        stopReason = messageStreamEvent.delta.stop_reason;
+                    }
+                    if (messageStreamEvent.usage) {
+                        outputTokens = messageStreamEvent.usage.output_tokens;
+                        if ((messageStreamEvent.usage as any).input_tokens) {
+                            inputTokens = (messageStreamEvent.usage as any).input_tokens;
+                        }
+                        if ((messageStreamEvent.usage as any).cache_read_input_tokens) {
+                            cacheReadInputTokens = (messageStreamEvent.usage as any).cache_read_input_tokens;
+                        }
+                        if ((messageStreamEvent.usage as any).cache_creation_input_tokens) {
+                            cacheCreationInputTokens = (messageStreamEvent.usage as any).cache_creation_input_tokens;
+                        }
+                    }
                     break;
                 }
                 case "message_stop": {

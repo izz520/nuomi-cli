@@ -200,27 +200,33 @@ class OpenAIClient {
                 }
                 //计算消耗的token
                 case 'response.completed': {
-                    const usage = event.response.usage
-                    // writeLog("input_tokens_details:", usage?.input_tokens_details)
-                    // writeLog("output_tokens_details", usage?.output_tokens_details)
-                    // console.log(`本次对话结束，本轮消耗的输入Token:${usage?.input_tokens},输出Token:${usage?.output_tokens}`);
-                    inputTokens = usage?.input_tokens ?? 0
-                    outputTokens = usage?.output_tokens ?? 0
-                    cacheCreationInputTokens = usage?.input_tokens_details.cached_tokens ?? 0
-                    cacheReadInputTokens = usage?.output_tokens_details.reasoning_tokens ?? 0
-                    break;
+                    const usage = event.response.usage;
+                    if (usage) {
+                        outputTokens = usage.output_tokens ?? 0;
+                        cacheReadInputTokens = usage.input_tokens_details?.cached_tokens ?? 0;
+                        inputTokens = Math.max(0, (usage.input_tokens ?? 0) - cacheReadInputTokens);
+                    }
+                    let stopReason = "end_turn";
+                    const resp = event.response as unknown as Record<string, unknown>;
+                    if (resp.status === "incomplete") {
+                        const details = resp.incomplete_details as Record<string, unknown> | undefined;
+                        if (details?.reason === "max_output_tokens") {
+                            stopReason = "max_tokens";
+                        }
+                    }
+
+                    yield {
+                        type: "stream_end",
+                        stopReason,
+                        usage: {
+                            inputTokens,
+                            outputTokens,
+                            cacheReadInputTokens,
+                            cacheCreationInputTokens: 0,
+                        },
+                    };
                 }
             }
-            yield ({
-                type: "stream_end",
-                stopReason,
-                usage: {
-                    inputTokens,
-                    outputTokens,
-                    cacheReadInputTokens,
-                    cacheCreationInputTokens,
-                },
-            })
         }
     }
 }

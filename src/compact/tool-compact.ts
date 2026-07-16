@@ -2,10 +2,12 @@ import { join } from "path";
 import { IMessage } from "../types/messsage.js";
 import { mkdirSync, writeFileSync } from "fs";
 import { ToolResultCompactStateManger } from "./state.js";
-// 整个工具结果的最大可显示长度
-const TOOL_RESULT_MAX_CONTENT = 50000
+// 单个工具最大的字符限制
+const SINGLE_TOOL_MAX_CONTENT = 50000
 // preview截取的最大长度，超出就会自动截取
 const TOOL_RESULT_PREVIEW = 2000
+//单个消息下，所有工具结果的总字符限制
+const SINGLE_MESSAGE_TOOL_MAX_CONTENT = 200000;
 
 // 压缩所有会话的所有工具调用结果
 export const compactToolResults = (messages: IMessage[], workDir: string, state: ToolResultCompactStateManger) => {
@@ -14,7 +16,7 @@ export const compactToolResults = (messages: IMessage[], workDir: string, state:
         //浅拷贝一下，防止修改原始数据
         const newMessage = { ...message }
         if (newMessage.toolResults && newMessage.toolResults.length > 0) {
-            newMessage.toolResults.map((result) => {
+            const newResults = newMessage.toolResults.map((result) => {
                 // 是否已经被替换过，返回时已经压缩的内容
                 const isReplace = state.getReplacement(result.toolUseId)
                 if (isReplace !== undefined) {
@@ -23,8 +25,8 @@ export const compactToolResults = (messages: IMessage[], workDir: string, state:
                 }
                 // 没有压缩
                 let content = result.content;
-                // Pass 1: 单条工具结果超限 → 溢出到磁盘
-                if (content.length > TOOL_RESULT_MAX_CONTENT) {
+                // Pass 1: 单条工具结果是否超出限制 → 溢出到磁盘
+                if (content.length > SINGLE_TOOL_MAX_CONTENT) {
                     //拿到了工具id缓存的路径，和存储工具结果
                     const spillPath = saveToolResultToFile(workDir, result.toolUseId, content);
                     //替换上下文，内容为之展示部分，其他的在哪个路径文件里
@@ -35,7 +37,38 @@ export const compactToolResults = (messages: IMessage[], workDir: string, state:
                 // 返回压缩后的
                 return { ...result, content };
             })
+            //计算所有工具结果压缩后的内容总长度
+            let totalLen = newResults.reduce((sum, r) => sum + r.content.length, 0);
+            //判断当前的消息的所有工具调用结果是否大于最大限制
+            if (totalLen > SINGLE_MESSAGE_TOOL_MAX_CONTENT) {
+                //排序一下，内容最长的放在最前面
+                const sorted = [...newResults].sort(
+                    (a, b) => b.content.length - a.content.length
+                );
+                //循环排序后的全部工具调用结果
+                for (const r of sorted) {
+                    //判断工具全部结果内容是否小于最大限制了
+                    if (totalLen <= SINGLE_MESSAGE_TOOL_MAX_CONTENT) break;
+                    //单个内容超出了单个结果最大内容限制
+                    if (r.content.length > TOOL_RESULT_PREVIEW) {
+                        //存储原内容
+                        const before = r.content;
+                        //拿到了工具id缓存的路径，和存储工具结果
+                        const spillPath = saveToolResultToFile(workDir, r.toolUseId, before);
+                        //替换上下文，内容为之展示部分，其他的在哪个路径文件里
+                        const replacement = compactToolResult(before, spillPath);
+                        //总长度=总长度-原始长度+压缩后的新长度
+                        totalLen = totalLen - before.length + replacement.length;
+                        //把原来的工具结果替换
+                        r.content = replacement;
+                        //记录替换的内容：id-原文内容-替换后的内容
+                        state.record(r.toolUseId, before, replacement);
+                    }
+                }
+            }
+            newMessage.toolResults = newResults;
         }
+        results.push(newMessage)
     }
     return results
 }
@@ -60,7 +93,7 @@ const saveToolResultToFile = (workDir: string, toolUseId: string, content: strin
 }
 
 // 压缩单个工具调用结果
-const compactToolResult = (path: string, content: string) => {
+const compactToolResult = (content: string, path: string) => {
     //计算内容大小
     const sizeKB = Math.floor(content.length / 1024);
     //切割内容，只保留2000字符
