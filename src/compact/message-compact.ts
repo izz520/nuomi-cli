@@ -207,13 +207,7 @@ async function compactMessage(
     const toKeep = estimationMessages.slice(keepStart);
     //把需要总结的内容变成markdown
     const conversationText = toSummarize
-        .map((m) => {
-            let text = `[${m.role}]: ${m.content}`;
-            if (m.toolUses) {
-                text += `\n[tools: ${m.toolUses.map((t) => t.toolName).join(", ")}]`;
-            }
-            return text;
-        })
+        .map(formatMessageForSummary)
         .join("\n\n");
     //创建一个新的消息管理器
     const summaryMessageManager = new MessageManager();
@@ -329,7 +323,8 @@ function hasToolResultMessage(msg: IMessage): boolean {
     return msg.role === "user" && !!msg.toolResults && msg.toolResults.length > 0;
 }
 
-function formatMessageForSummary(message: IMessage): string {
+/** Serialize one conversation message for the summarizer without dropping tool context. */
+export function formatMessageForSummary(message: IMessage): string {
     const sections: string[] = [];
 
     if (message.content) {

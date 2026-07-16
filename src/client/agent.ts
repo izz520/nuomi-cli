@@ -2,6 +2,7 @@ import { AutoCompactRetryCount, compactContextMessage } from "../compact/message
 import { RecoveryManager } from "../compact/recovery.js";
 import { ToolResultCompactStateManger } from "../compact/state.js";
 import { compactToolResults } from "../compact/tool-compact.js";
+import { createUsageAnchor } from "../compact/usage-anchor.js";
 import { buildMessageManager } from "../messageManager/buildMessage.js";
 import { MessageManager } from "../messageManager/message.js";
 import { Decision, PermissionChecker } from "../premisson/checker.js";
@@ -187,13 +188,7 @@ export class Agent {
                     }
                     case "stream_end": {
                         stopReason = message.stopReason;
-                        this.usageAnchor = {
-                            baselineTokens:
-                                message.usage.inputTokens +
-                                message.usage.cacheReadInputTokens +
-                                message.usage.cacheCreationInputTokens,
-                            anchorCount: sentMessageCount,
-                        };
+                        this.usageAnchor = createUsageAnchor(message.usage, sentMessageCount);
                         yield { type: "usage", usage: message.usage };
                         break;
                     }
