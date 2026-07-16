@@ -1,3 +1,5 @@
+import { ToolResultCompactStateManger } from "../compact/state.js";
+import { compactToolResults } from "../compact/tool-compact.js";
 import { MessageManger } from "../messageManger/message.js";
 import { Decision, PermissionChecker } from "../premisson/checker.js";
 import { ToolsManger } from "../tools/register.js";
@@ -18,6 +20,7 @@ interface IAgentConfig {
     workDir: string,
     abortSignal: AbortSignal,
     permissionCheck: PermissionChecker
+    toolResultCompactManger: ToolResultCompactStateManger
     onPermissionRequest?: (
         toolName: string,
         args: Record<string, unknown>,
@@ -38,14 +41,16 @@ export class Agent {
     private abortSignal: AbortSignal
     private workDir: string;
     private permissionCheck: PermissionChecker;
+    private toolResultCompactManger: ToolResultCompactStateManger;
     private onPermissionRequest: IAgentConfig['onPermissionRequest']
-    constructor({ client, messageManger, workDir, abortSignal, permissionCheck, toolManger, onPermissionRequest }: IAgentConfig) {
+    constructor({ client, messageManger, workDir, abortSignal, permissionCheck, toolManger, toolResultCompactManger, onPermissionRequest }: IAgentConfig) {
         this.client = client
         this.messageManger = messageManger
         this.toolManger = toolManger
         this.workDir = workDir
         this.abortSignal = abortSignal
         this.permissionCheck = permissionCheck
+        this.toolResultCompactManger = toolResultCompactManger
         this.onPermissionRequest = onPermissionRequest
 
     }
@@ -71,6 +76,12 @@ export class Agent {
             const sentMessageCount = this.messageManger.len();
             //记录工具调用次数
             let consecutiveUnknown = 0;
+            // ✨ 这里要开始压缩
+            const compactToolResultMessage = compactToolResults(
+                this.messageManger.getMessages(), this.workDir, this.toolResultCompactManger
+            );
+
+            // 发送消息给AI
             const result = this.client.sendMessageStream(this.messageManger, toolSchemas, this.abortSignal)
             for await (const message of result) {
                 switch (message.type) {

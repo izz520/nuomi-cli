@@ -21,6 +21,7 @@ import { PermissionAction, PermissionDialog } from './PermissionDialog.js'
 import { MCPManager } from '../mcp/manger.js'
 import { MCPToolWrapper } from '../mcp/tool-wrapper.js'
 import { ToolSearchTool } from '../tools/tool-search.js'
+import { ToolResultCompactStateManger } from '../compact/state.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
     workDir: string
@@ -163,14 +164,19 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
     const [mcpInfo, setMcpInfo] = useState<{ servers: string[]; toolCount: number } | null>(null);
     const messageManagerRef = useRef<MessageManger | null>(null);
     const toolManagerRef = useRef<ToolsManger | null>(null);
+    const toolResultCompactMangerRef = useRef<ToolResultCompactStateManger | null>(null);
     if (messageManagerRef.current === null) {
         messageManagerRef.current = new MessageManger();
     }
     if (toolManagerRef.current === null) {
         toolManagerRef.current = createToolManager();
     }
+    if (toolResultCompactMangerRef.current === null) {
+        toolResultCompactMangerRef.current = new ToolResultCompactStateManger()
+    }
     const messageManager = messageManagerRef.current;
     const toolManager = toolManagerRef.current;
+    const toolResultCompactManger = toolResultCompactMangerRef.current
 
 
     const handleSystemEvent = useCallback((event: SystemEvent) => {
@@ -231,6 +237,7 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
             client: llmClient,
             messageManger: messageManager,
             toolManger: toolManager,
+            toolResultCompactManger: toolResultCompactManger,
             workDir: workDir,
             abortSignal: controller.signal,
             permissionCheck: checker,
@@ -300,8 +307,8 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
                         break
                     }
                     case "tool_use": {
-                        setWorkingLabel("Preparing tools")
-                        setIsWorking(true)
+                        // The provider may keep streaming for a while after a tool call
+                        // is complete. Wait for tool_group_start before showing tool work.
                         break
                     }
                     case "tool_group_start": {
@@ -613,8 +620,8 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers }: IChat
             dispatchMessages({
                 type: "append_assistant",
                 content: `MCP initialization failed: ${error instanceof Error
-                        ? error.message
-                        : String(error)
+                    ? error.message
+                    : String(error)
                     }`,
                 phase: "error",
                 merge: false,
