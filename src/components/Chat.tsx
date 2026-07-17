@@ -8,19 +8,13 @@ import OpenAIClient from '../client/openai.js'
 import { Agent } from '../client/agent.js'
 import { MessageManager } from '../messageManager/message.js'
 import { ToolsManger } from '../tools/register.js'
-import { ReadFile } from '../tools/read-file.js'
 import { createSandbox, Sandbox } from '../sandbox/index.js'
 import { PermissionChecker, PermissionMode } from '../premisson/checker.js'
-import { WriteFileTool } from '../tools/write-file.js'
-import { EditFileTool } from '../tools/edit-file.js'
-import { GlobTool } from '../tools/glob.js'
-import { GrepTool } from '../tools/grep.js'
 import { BashTool } from '../tools/bash.js'
 import { isAbsolute, join, relative } from 'node:path'
 import { PermissionAction, PermissionDialog } from './PermissionDialog.js'
 import { MCPManager } from '../mcp/manger.js'
 import { MCPToolWrapper } from '../mcp/tool-wrapper.js'
-import { ToolSearchTool } from '../tools/tool-search.js'
 import { ToolResultCompactStateManger } from '../compact/state.js'
 import { RecoveryManager } from '../compact/recovery.js'
 interface IChat {
@@ -31,6 +25,10 @@ interface IChat {
     sandboxConfig: SandBoxConfig
     mcpServers: MCPServerConfig[]
     contextWindow: number | undefined
+    messageManager: MessageManager
+    toolManager: ToolsManger
+    recoveryManager: RecoveryManager
+    toolResultCompactManger: ToolResultCompactStateManger
 }
 
 const FIRST_RESPONSE_TIMEOUT_MS = 60_000
@@ -124,19 +122,11 @@ const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMe
     }
 };
 
-const createToolManager = (): ToolsManger => {
-    const manager = new ToolsManger();
-    manager.register(new ReadFile());
-    manager.register(new WriteFileTool());
-    manager.register(new EditFileTool());
-    manager.register(new GlobTool());
-    manager.register(new GrepTool());
-    manager.register(new BashTool());
-    manager.register(new ToolSearchTool(manager));
-    return manager;
-};
 
-const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, contextWindow }: IChat) => {
+
+const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, contextWindow, toolManager, messageManager, toolResultCompactManger, recoveryManager }: IChat) => {
+    // console.log("🚀 ~ Chat ~ instructions:", instructions)
+    // console.log("🚀 ~ Chat ~ memReminder:", memReminder)
     const { exit } = useApp()
     const isExitingRef = useRef(false)
     const [messages, dispatchMessages] = useReducer(messagesReducer, [])
@@ -164,26 +154,6 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
     const sandboxNetworkEnabled = sandboxConfig.network_enabled ?? false;
 
     const [mcpInfo, setMcpInfo] = useState<{ servers: string[]; toolCount: number } | null>(null);
-    const messageManagerRef = useRef<MessageManager | null>(null);
-    const toolManagerRef = useRef<ToolsManger | null>(null);
-    const recoveryManagerRef = useRef<RecoveryManager | null>(null)
-    const toolResultCompactMangerRef = useRef<ToolResultCompactStateManger | null>(null);
-    if (messageManagerRef.current === null) {
-        messageManagerRef.current = new MessageManager();
-    }
-    if (toolManagerRef.current === null) {
-        toolManagerRef.current = createToolManager();
-    }
-    if (toolResultCompactMangerRef.current === null) {
-        toolResultCompactMangerRef.current = new ToolResultCompactStateManger()
-    }
-    if (recoveryManagerRef.current === null) {
-        recoveryManagerRef.current = new RecoveryManager()
-    }
-    const messageManager = messageManagerRef.current;
-    const toolManager = toolManagerRef.current;
-    const toolResultCompactManger = toolResultCompactMangerRef.current
-    const recoveryManager = recoveryManagerRef.current
 
     const handleSystemEvent = useCallback((event: SystemEvent) => {
         switch (event) {
@@ -237,7 +207,7 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
         } else if (bashTool) {
             bashTool.sandbox = null;
         }
-        console.log("toolManager", toolManager);
+        // console.log("toolManager", toolManager);
 
         const agent = new Agent({
             client: llmClient,

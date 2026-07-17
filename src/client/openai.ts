@@ -25,6 +25,7 @@ class OpenAIClient {
     async *sendMessageStream(messageManager: MessageManager, tools: Record<string, unknown>[], abortSignal?: AbortSignal): AsyncGenerator<StreamEvent> {
         //拿到消息管理器的所有消息记录
         const formatMessages = convortOpenAIMessage(messageManager.getMessages())
+        console.log("🚀 ~ OpenAIClient ~ sendMessageStream ~ formatMessages:", formatMessages)
         //格式化成OpenAi格式的消息
         const input: OpenAI.Responses.ResponseCreateParamsStreaming["input"] = [];
         //向消息的第一条添加system系统提示词
