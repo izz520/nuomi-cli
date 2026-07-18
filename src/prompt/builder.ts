@@ -84,10 +84,6 @@ export function detectEnvironment(workDir: string): EnvironmentContext {
 
 export interface BuildOptions {
   skillSection?: string;
-  // 用户自定义指令（CLAUDE.md 等），注入到系统提示中
-  customInstructions?: string;
-  // 自动记忆内容，注入到系统提示中
-  memorySection?: string;
 }
 
 export function buildSystemPrompt(
@@ -106,16 +102,6 @@ export function buildSystemPrompt(
 
   if (opts.skillSection) {
     b.add({ name: "Skills", priority: 90, content: opts.skillSection });
-  }
-
-  // 自定义指令（CLAUDE.md 等）优先级高于 skills，低于 memory
-  if (opts.customInstructions) {
-    b.add({ name: "CustomInstructions", priority: 95, content: opts.customInstructions });
-  }
-
-  // 记忆区段排在最后，确保模型看到最新的持久记忆
-  if (opts.memorySection) {
-    b.add({ name: "Memory", priority: 100, content: opts.memorySection });
   }
 
   return b.build();

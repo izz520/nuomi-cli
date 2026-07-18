@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatMessageForSummary } from "./message-compact.js";
+import { currentContextTokens, estimateStaticRequestTokens, formatMessageForSummary } from "./message-compact.js";
+import { MessageManager } from "../messageManager/message.js";
 import { createUsageAnchor } from "./usage-anchor.js";
 
 test("usage anchor covers input tokens but not model output", () => {
@@ -15,6 +16,21 @@ test("usage anchor covers input tokens but not model output", () => {
         baselineTokens: 1_300,
         anchorCount: 4,
     });
+});
+
+test("context budget includes the current static request cost without anchoring it", () => {
+    const messages = new MessageManager();
+    messages.addUserMessage("new");
+    const staticTokens = estimateStaticRequestTokens(
+        "system rules",
+        "runtime context",
+        [{ name: "ReadFile", input_schema: { type: "object" } }],
+    );
+
+    assert.equal(
+        currentContextTokens(messages, { baselineTokens: 100, anchorCount: 0 }, undefined, staticTokens),
+        100 + staticTokens + 1,
+    );
 });
 
 test("summary serialization preserves tool arguments and results", () => {

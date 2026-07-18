@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { AssistantMessagePhase, StreamEvent } from "../types/llm.js";
+import { AssistantMessagePhase, StreamEvent, StreamOptions } from "../types/llm.js";
 import { ProviderConfig } from "../types/provider.js";
 import { IMessage } from "../types/messsage.js";
 import { Tool } from "../types/tools.js";
@@ -22,18 +22,17 @@ class OpenAIClient {
         this.systemPrompt = systemPrompt
     }
 
-    async *sendMessageStream(messageManager: MessageManager, tools: Record<string, unknown>[], abortSignal?: AbortSignal): AsyncGenerator<StreamEvent> {
+    getSystemPrompt(): string {
+        return this.systemPrompt;
+    }
+
+    async *sendMessageStream(messageManager: MessageManager, tools: Record<string, unknown>[], options: StreamOptions = {}): AsyncGenerator<StreamEvent> {
         //拿到消息管理器的所有消息记录
-        const formatMessages = convortOpenAIMessage(messageManager.getMessages())
-        console.log("🚀 ~ OpenAIClient ~ sendMessageStream ~ formatMessages:", formatMessages)
-        //格式化成OpenAi格式的消息
-        const input: OpenAI.Responses.ResponseCreateParamsStreaming["input"] = [];
-        //向消息的第一条添加system系统提示词
-        input.push({ role: "system" as const, content: this.systemPrompt });
-        for (const msg of formatMessages) {
-            //循环把消息管理器的消息添加进去
-            input.push(msg as unknown as OpenAI.Responses.ResponseInputItem);
-        }
+        const input = buildOpenAIRequestInput(
+            this.systemPrompt,
+            messageManager.getMessages(),
+            options.runtimeContext,
+        )
         // 格式化OpenAI支持的工具格式
         const formatTools: OpenAI.Responses.FunctionTool[] = tools.map((s) => {
             const schema = s.input_schema as Record<string, unknown>;
@@ -54,7 +53,7 @@ class OpenAIClient {
             ...(formatTools.length > 0 ? { tools: formatTools } : {}),
         };
         // console.log("🚀 ~ OpenAIClient ~ sendMessageStream ~ params:", params)
-        const result = await this.client.responses.create(params, { signal: abortSignal ? abortSignal : null })
+        const result = await this.client.responses.create(params, { signal: options.abortSignal ?? null })
         // console.log("🚀 ~ OpenAIClient ~ sendMessageStream ~ result:", result)
         //是注释
         let isThinking = false
@@ -230,6 +229,23 @@ class OpenAIClient {
             }
         }
     }
+}
+
+export function buildOpenAIRequestInput(
+    systemPrompt: string,
+    history: IMessage[],
+    runtimeContext?: string,
+): OpenAI.Responses.ResponseInputItem[] {
+    const input: OpenAI.Responses.ResponseInputItem[] = [
+        { role: "system", content: systemPrompt },
+    ];
+    if (runtimeContext) {
+        input.push({ role: "user", content: runtimeContext });
+    }
+    for (const message of convortOpenAIMessage(history)) {
+        input.push(message as unknown as OpenAI.Responses.ResponseInputItem);
+    }
+    return input;
 }
 
 export default OpenAIClient;

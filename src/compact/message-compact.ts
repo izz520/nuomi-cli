@@ -33,6 +33,17 @@ const KEEP_MIN_TOKENS = 10000;
 //最少保留多少条近期消息
 const MIN_KEEP_MESSAGES = 5;
 const MIN_COMPACT_PREFIX = 2;
+
+/** Estimate request content that is sent on every turn but is not chat history. */
+export function estimateStaticRequestTokens(
+    systemPrompt: string,
+    runtimeContext: string,
+    toolSchemas: Record<string, unknown>[],
+): number {
+    const chars = systemPrompt.length + runtimeContext.length + JSON.stringify(toolSchemas).length;
+    return Math.ceil(chars / CHARS_PER_TOKEN);
+}
+
 export async function compactContextMessage(
     //完整的历史记录
     messageManager: MessageManager,
@@ -55,10 +66,17 @@ export async function compactContextMessage(
     //压缩 summary 里会告诉模型：如果需要压缩前的具体细节，可以用 ReadFile 读完整 session 文件
     sessionFilePath: string = "",
     //压缩的消息
-    compactToolResultMessage?: IMessage[]
+    compactToolResultMessage?: IMessage[],
+    // 系统提示词+指令+长期记忆+工具的token量
+    staticRequestTokens = 0,
 ): Promise<CompactResult> {
     //拿到当前消息列表下总消耗的token
-    const tokens = currentContextTokens(messageManager, usageAnchor, compactToolResultMessage);
+    const tokens = currentContextTokens(
+        messageManager,
+        usageAnchor,
+        compactToolResultMessage,
+        staticRequestTokens,
+    );
     //拿到自动压缩的阈值
     const autoThreshold = calcCompactThreshold(contextWindow, maxOutput);
     //拿到强制压缩的阈值或者手动压缩
@@ -102,31 +120,33 @@ export function currentContextTokens(
     //上次使用token量
     usageAnchor: UsageAnchor | null,
     //仅仅压缩工具结果后的消息记录
-    compactToolResultMessage?: IMessage[]
+    compactToolResultMessage?: IMessage[],
+    //系统提示词+指令+长期记忆+工具的token量
+    staticRequestTokens = 0,
 ): number {
     //如果有仅仅压缩工具结果后的消息记录
     if (compactToolResultMessage && compactToolResultMessage.length > 0) {
         //第一次，没有token用量
         if (!usageAnchor) {
             //直接返回计算出来的所有消息的token占用
-            return estimateMessagesToken(compactToolResultMessage);
+            return staticRequestTokens + estimateMessagesToken(compactToolResultMessage);
         }
         //之前有记录
         //找到最小的token
         const start = Math.min(usageAnchor.anchorCount, compactToolResultMessage.length);
-        return usageAnchor.baselineTokens + estimateMessagesToken(compactToolResultMessage.slice(start));
+        return staticRequestTokens + usageAnchor.baselineTokens + estimateMessagesToken(compactToolResultMessage.slice(start));
     }
     //如果没有压缩过的历史消息，且没有压缩的历史消息
     if (!usageAnchor) {
         //则直接返回计算原始历史消息
-        return estimateTokens(messageManager);
+        return staticRequestTokens + estimateTokens(messageManager);
     }
     //有原始消息，并且之前有token用量
     const messages = messageManager.getMessages();
     // Clamp in case the transcript was truncated (e.g. by a compaction) below the
     // anchor index — then nothing new to add on top of the baseline.
     const start = Math.min(usageAnchor.anchorCount, messages.length);
-    return usageAnchor.baselineTokens + estimateMessagesToken(messages.slice(start));
+    return staticRequestTokens + usageAnchor.baselineTokens + estimateMessagesToken(messages.slice(start));
 }
 
 // 估算当前消息的总token占用

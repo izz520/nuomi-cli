@@ -1,5 +1,10 @@
 export type AssistantMessagePhase = "commentary" | "final_answer" | "unknown";
 
+export interface StreamOptions {
+    abortSignal?: AbortSignal;
+    runtimeContext?: string;
+}
+
 export type ToolCallContext =
     | {
         provider: "anthropic";

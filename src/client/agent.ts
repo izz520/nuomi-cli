@@ -1,4 +1,4 @@
-import { AutoCompactRetryCount, compactContextMessage } from "../compact/message-compact.js";
+import { AutoCompactRetryCount, compactContextMessage, estimateStaticRequestTokens } from "../compact/message-compact.js";
 import { RecoveryManager } from "../compact/recovery.js";
 import { ToolResultCompactStateManger } from "../compact/state.js";
 import { compactToolResults } from "../compact/tool-compact.js";
@@ -11,6 +11,7 @@ import { AgentEvent } from "../types/agent.js";
 import { UsageAnchor } from "../types/compact.js";
 import { ToolResultBlock, ToolUseBlock } from "../types/messsage.js";
 import { ProviderConfig } from "../types/provider.js";
+import { RuntimeContextManager } from "../context/runtime-context.js";
 import writeLog from "../utils/writeLog.js";
 import AnthropicClient from "./anthorpic.js";
 import createClient from "./create.js";
@@ -27,6 +28,7 @@ interface IAgentConfig {
     toolResultCompactManger: ToolResultCompactStateManger
     contextWindow: number | undefined
     recoveryManager: RecoveryManager
+    runtimeContextManager: RuntimeContextManager
     onPermissionRequest?: (
         toolName: string,
         args: Record<string, unknown>,
@@ -52,8 +54,9 @@ export class Agent {
     private maxOutput = 8192
     private autoCompactRetryCount = new AutoCompactRetryCount()
     private recoveryManager: RecoveryManager
+    private runtimeContextManager: RuntimeContextManager
     private onPermissionRequest: IAgentConfig['onPermissionRequest']
-    constructor({ client, messageManager, workDir, abortSignal, permissionCheck, toolManger, toolResultCompactManger, contextWindow, recoveryManager, onPermissionRequest }: IAgentConfig) {
+    constructor({ client, messageManager, workDir, abortSignal, permissionCheck, toolManger, toolResultCompactManger, contextWindow, recoveryManager, runtimeContextManager, onPermissionRequest }: IAgentConfig) {
         this.client = client
         this.messageManager = messageManager
         this.toolManger = toolManger
@@ -63,6 +66,7 @@ export class Agent {
         this.toolResultCompactManger = toolResultCompactManger
         this.contextWindow = contextWindow ?? 200000
         this.recoveryManager = recoveryManager
+        this.runtimeContextManager = runtimeContextManager
         this.onPermissionRequest = onPermissionRequest
 
     }
@@ -73,6 +77,14 @@ export class Agent {
         //开始循环Loop
         while (looping) {
             let toolSchemas = this.toolManger.getAllSchemas();
+            //拿到指令+长期记忆的prompt
+            const runtimeContext = this.runtimeContextManager.buildMessage();
+            //计算系统提示词+指令+长期记忆+工具的token大概是多少
+            const staticRequestTokens = estimateStaticRequestTokens(
+                this.client.getSystemPrompt(),
+                runtimeContext,
+                toolSchemas,
+            );
             //拿到所有工具的名称
             const toolSchemaNames = this.toolManger.listTools().map((t) => t.name);
             // console.log("进入loop");
@@ -103,7 +115,8 @@ export class Agent {
                 toolSchemaNames,
                 this.usageAnchor,
                 "",
-                compactToolResultMessage
+                compactToolResultMessage,
+                staticRequestTokens,
             )
             if (compactMessageResult.message) {
                 // 如果消息有内容的话，就流失传输给上层
@@ -130,7 +143,10 @@ export class Agent {
             const sentMessageCount = this.messageManager.len();
 
             // 发送消息给AI
-            const result = this.client.sendMessageStream(compactMessageManager, toolSchemas, this.abortSignal)
+            const result = this.client.sendMessageStream(compactMessageManager, toolSchemas, {
+                abortSignal: this.abortSignal,
+                runtimeContext,
+            })
             for await (const message of result) {
                 switch (message.type) {
                     case "thinking_delta": {
@@ -188,7 +204,11 @@ export class Agent {
                     }
                     case "stream_end": {
                         stopReason = message.stopReason;
-                        this.usageAnchor = createUsageAnchor(message.usage, sentMessageCount);
+                        this.usageAnchor = createUsageAnchor(
+                            message.usage,
+                            sentMessageCount,
+                            staticRequestTokens,
+                        );
                         yield { type: "usage", usage: message.usage };
                         break;
                     }

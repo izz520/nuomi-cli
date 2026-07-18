@@ -17,6 +17,7 @@ import { MCPManager } from '../mcp/manger.js'
 import { MCPToolWrapper } from '../mcp/tool-wrapper.js'
 import { ToolResultCompactStateManger } from '../compact/state.js'
 import { RecoveryManager } from '../compact/recovery.js'
+import { RuntimeContextManager } from '../context/runtime-context.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
     workDir: string
@@ -29,6 +30,7 @@ interface IChat {
     toolManager: ToolsManger
     recoveryManager: RecoveryManager
     toolResultCompactManger: ToolResultCompactStateManger
+    runtimeContextManager: RuntimeContextManager
 }
 
 const FIRST_RESPONSE_TIMEOUT_MS = 60_000
@@ -124,7 +126,7 @@ const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMe
 
 
 
-const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, contextWindow, toolManager, messageManager, toolResultCompactManger, recoveryManager }: IChat) => {
+const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, contextWindow, toolManager, messageManager, toolResultCompactManger, recoveryManager, runtimeContextManager }: IChat) => {
     // console.log("🚀 ~ Chat ~ instructions:", instructions)
     // console.log("🚀 ~ Chat ~ memReminder:", memReminder)
     const { exit } = useApp()
@@ -219,6 +221,7 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
             permissionCheck: checker,
             contextWindow: contextWindow,
             recoveryManager: recoveryManager,
+            runtimeContextManager,
             // 权限异步等待用户选择后返回结果
             onPermissionRequest: async (toolName, args, decision) => {
                 return new Promise<"allow" | "deny" | "allowAlways">((resolve) => {
@@ -421,6 +424,11 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
                 return `Write ${filePath}`;
             case "EditFile":
                 return `Edit ${filePath}`;
+            case "ReadMemory":
+                return `Read memory: ${String(args.scope ?? "project")}/${String(args.path ?? "MEMORY.md")}`;
+            case "WriteMemory":
+            case "EditMemory":
+                return `Write memory: ${String(args.scope ?? "project")}/${String(args.path ?? "MEMORY.md")}`;
             case "Glob":
                 return `Glob  ${pattern || "*"}${filePath === "." ? "" : ` in ${filePath}`}`;
             case "Grep": {
@@ -472,6 +480,8 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
             return isMetadataSearch(tools) ? "Search project metadata" : "Search project files";
         }
         if (names.every((name) => name === "ReadFile")) return "Read project files";
+        if (names.every((name) => name === "ReadMemory")) return "Reading memory";
+        if (names.every((name) => name === "WriteMemory" || name === "EditMemory")) return "Writing memory";
         if (names.every((name) => name === "WriteFile" || name === "EditFile")) {
             return "Modify project files";
         }
@@ -497,6 +507,8 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
 
         if (names.every((name) => name === "Glob" || name === "Grep")) return "Search complete";
         if (names.every((name) => name === "ReadFile")) return "Files read";
+        if (names.every((name) => name === "ReadMemory")) return "Memory read";
+        if (names.every((name) => name === "WriteMemory" || name === "EditMemory")) return "Memory updated";
         if (names.every((name) => name === "WriteFile" || name === "EditFile")) return "Changes applied";
         if (names.every((name) => name === "Bash")) return "Commands complete";
         return "Tools complete";
@@ -585,11 +597,9 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
                 });
             }
 
-            for (const { serverName, text } of result.instructions) {
-                messageManager.addSystemReminder(
-                    `# MCP Server: ${serverName}\n${text}`
-                );
-            }
+            runtimeContextManager.setMcpRuntimeContext(
+                result.instructions.map(({ serverName, text }) => `# MCP Server: ${serverName}\n${text}`),
+            );
         };
 
         void initialize().catch((error: unknown) => {
@@ -617,9 +627,10 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
             }
 
             setMcpInfo(null);
+            runtimeContextManager.setMcpRuntimeContext("");
             void mcpManager.disconnectAll();
         };
-    }, [mcpServers, toolManager, messageManager]);
+    }, [mcpServers, toolManager, runtimeContextManager]);
 
     return (
         <Box flexDirection="column">

@@ -9,8 +9,8 @@ import { ProviderConfig } from "./types/provider.js";
 import Chat from "./components/Chat.js";
 import { buildSystemPrompt, detectEnvironment } from "./prompt/builder.js";
 import { PermissionMode } from "./premisson/checker.js";
-import { loadInstructions } from "./memory/instructions.js";
 import { MemoryManager } from "./memory/manager.js";
+import { RuntimeContextManager } from "./context/runtime-context.js";
 import { MessageManager } from "./messageManager/message.js";
 import { ToolsManger } from "./tools/register.js";
 import { RecoveryManager } from "./compact/recovery.js";
@@ -22,6 +22,7 @@ import { GlobTool } from "./tools/glob.js";
 import { GrepTool } from "./tools/grep.js";
 import { BashTool } from "./tools/bash.js";
 import { ToolSearchTool } from "./tools/tool-search.js";
+import { EditMemoryTool, ReadMemoryTool, WriteMemoryTool } from "./tools/memory.js";
 
 const workDir = process.cwd()
 const config = loadConfig();
@@ -32,7 +33,8 @@ export default function App() {
     //当前使用的Provider
     const [selectProvider, setSelectProvider] = useState<ProviderConfig>(config.providers[0])
     const [permMode, setPermMode] = useState<PermissionMode>("default")
-    const memManagerRef = useRef<MemoryManager | undefined>(undefined)
+    const memManagerRef = useRef<MemoryManager | null>(null)
+    const runtimeContextManagerRef = useRef<RuntimeContextManager | null>(null)
     const messageManagerRef = useRef<MessageManager | null>(null);
     const toolManagerRef = useRef<ToolsManger | null>(null);
     const recoveryManagerRef = useRef<RecoveryManager | null>(null)
@@ -40,8 +42,17 @@ export default function App() {
     if (messageManagerRef.current === null) {
         messageManagerRef.current = new MessageManager();
     }
+    if (memManagerRef.current === null) {
+        memManagerRef.current = new MemoryManager(workDir);
+    }
+    if (runtimeContextManagerRef.current === null) {
+        runtimeContextManagerRef.current = new RuntimeContextManager(workDir, memManagerRef.current);
+    }
     if (toolManagerRef.current === null) {
-        toolManagerRef.current = createToolManager();
+        toolManagerRef.current = createToolManager(
+            memManagerRef.current,
+            runtimeContextManagerRef.current,
+        );
     }
     if (toolResultCompactMangerRef.current === null) {
         toolResultCompactMangerRef.current = new ToolResultCompactStateManger()
@@ -57,15 +68,6 @@ export default function App() {
         env.model = selectProvider.model;
         //将对象转变为string的系统提示词
         const systemPrompt = buildSystemPrompt(env);
-        // 读取AGENTS.md或者NUOMI.md这类的文件
-        const instructions = loadInstructions(workDir);
-        //创建 MemoryManager
-        const memMgr = new MemoryManager(workDir);
-        memManagerRef.current = memMgr;
-        //扫描记忆prompt
-        const memReminder = memMgr.buildSystemReminder();
-        // console.log("🚀 ~ App ~ instructions:", instructions)
-        messageManagerRef.current?.injectLongTermMemory(instructions, memReminder)
         const client = createClient({ provider: selectProvider, systemPrompt: systemPrompt })
         setLLMClient(client)
     }, [selectProvider, workDir])
@@ -89,12 +91,16 @@ export default function App() {
                 toolManager={toolManagerRef.current}
                 recoveryManager={recoveryManagerRef.current}
                 toolResultCompactManger={toolResultCompactMangerRef.current}
+                runtimeContextManager={runtimeContextManagerRef.current}
             />
         </Box>
     );
 }
 
-const createToolManager = (): ToolsManger => {
+const createToolManager = (
+    memoryManager: MemoryManager,
+    runtimeContextManager: RuntimeContextManager,
+): ToolsManger => {
     const manager = new ToolsManger();
     manager.register(new ReadFile());
     manager.register(new WriteFileTool());
@@ -103,5 +109,8 @@ const createToolManager = (): ToolsManger => {
     manager.register(new GrepTool());
     manager.register(new BashTool());
     manager.register(new ToolSearchTool(manager));
+    manager.register(new ReadMemoryTool(memoryManager));
+    manager.register(new WriteMemoryTool(memoryManager, () => runtimeContextManager.invalidate()));
+    manager.register(new EditMemoryTool(memoryManager, () => runtimeContextManager.invalidate()));
     return manager;
 };

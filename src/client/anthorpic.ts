@@ -1,6 +1,7 @@
 import { Anthropic } from "@anthropic-ai/sdk"
-import { StreamEvent } from "../types/llm.js";
+import { StreamEvent, StreamOptions } from "../types/llm.js";
 import { ProviderConfig } from "../types/provider.js";
+import { IMessage } from "../types/messsage.js";
 import { MessageManager } from "../messageManager/message.js";
 import writeLog from "../utils/writeLog.js";
 import { convortAnthropicMessage } from "./convort-message.js";
@@ -19,14 +20,20 @@ class AnthropicClient {
         this.systemPrompt = systemPrompt
     }
 
+    getSystemPrompt(): string {
+        return this.systemPrompt;
+    }
 
 
-    async *sendMessageStream(messageManager: MessageManager, tools: Record<string, unknown>[], abortSignal?: AbortSignal): AsyncGenerator<StreamEvent> {
+
+    async *sendMessageStream(messageManager: MessageManager, tools: Record<string, unknown>[], options: StreamOptions = {}): AsyncGenerator<StreamEvent> {
         // console.log("发送消息给Agent");
 
         //拿到全部消息
-        const message = messageManager.getMessages()
-        const convrtMessage = convortAnthropicMessage(message)
+        const convrtMessage = buildAnthropicRequestMessages(
+            messageManager.getMessages(),
+            options.runtimeContext,
+        )
         // console.log("🚀 ~ AnthropicClient ~ sendMessageStream ~ message:", message)
         // writeLog(convrtMessage)
         //格式化工具为Anthropic支持的格式
@@ -54,7 +61,7 @@ class AnthropicClient {
         // writeLog(params)
         //发送消息
         const result = this.client.messages.stream(params, {
-            ...(abortSignal ? { signal: abortSignal } : {}),
+            ...(options.abortSignal ? { signal: options.abortSignal } : {}),
         })
         //思考
         let isThinking = false;
@@ -236,6 +243,37 @@ class AnthropicClient {
             },
         };
     }
+}
+
+export function buildAnthropicRequestMessages(
+    history: IMessage[],
+    runtimeContext?: string,
+): Anthropic.MessageParam[] {
+    const runtimeMessages: Anthropic.MessageParam[] = runtimeContext
+        ? [{ role: "user", content: [{ type: "text", text: runtimeContext }] }]
+        : [];
+    const messages = [...runtimeMessages, ...convortAnthropicMessage(history)];
+
+    return messages.reduce<Anthropic.MessageParam[]>((merged, message) => {
+        const previous = merged.at(-1);
+        if (previous?.role === "user" && message.role === "user") {
+            previous.content = [
+                ...asAnthropicContent(previous.content),
+                ...asAnthropicContent(message.content),
+            ];
+            return merged;
+        }
+        merged.push(message);
+        return merged;
+    }, []);
+}
+
+function asAnthropicContent(
+    content: string | Anthropic.ContentBlockParam[],
+): Anthropic.ContentBlockParam[] {
+    return typeof content === "string"
+        ? [{ type: "text", text: content }]
+        : [...content];
 }
 
 

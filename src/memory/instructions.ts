@@ -11,6 +11,12 @@ export interface InstructionSource {
   content: string;
 }
 
+export interface InstructionDiscovery {
+  sources: InstructionSource[];
+  /** Include targets found while expanding sources, including missing targets. */
+  dependencies: string[];
+}
+
 /**
  * 发现并拼接所有项目和用户级指令文件。
  *
@@ -57,38 +63,44 @@ export function loadInstructions(workDir: string): string {
  * 最低优先级在前（用户全局），最高在后（本地覆盖）。
  */
 export function discoverInstructions(workDir: string): InstructionSource[] {
-  const sources: InstructionSource[] = [];//path和内容
-  const seen = new Set<string>();
+  return discoverInstructionState(workDir).sources;
+}
 
-  // 1. 用户全局指令
+/** Conventional paths can be fingerprinted without reading instruction contents. */
+//拿到记忆的路径，比如AGENTS.md这类的路径
+export function getInstructionCandidatePaths(workDir: string): string[] {
+  const candidates: string[] = [];
   try {
     const home = homedir();
-    addSource(sources, seen, join(home, ".nuomi", "NUOMI.md"));
-    addSource(sources, seen, join(home, ".nuomi", "AGENTS.md"));
+    candidates.push(join(home, ".nuomi", "NUOMI.md"), join(home, ".nuomi", "AGENTS.md"));
   } catch {
-    // $HOME 不可用时跳过
+    // $HOME unavailable
   }
-
-  // 2. 从 git root 到 workDir 的每个目录
-  const dirs = projectInstructionDirs(workDir);
-  for (const dir of dirs) {
-    addSource(sources, seen, join(dir, "NUOMI.md"));
-    addSource(sources, seen, join(dir, "AGENTS.md"));
+  for (const dir of projectInstructionDirs(workDir)) {
+    candidates.push(join(dir, "NUOMI.md"), join(dir, "AGENTS.md"));
   }
+  candidates.push(join(workDir, ".nuomi", "INSTRUCTIONS.md"));
+  candidates.push(join(workDir, "NUOMI.local.md"));
+  return candidates.map((candidate) => resolve(candidate));
+}
 
-  // 3. 兼容旧格式
-  addSource(sources, seen, join(workDir, ".nuomi", "INSTRUCTIONS.md"));
-
-  // 4. 本地私有覆盖
-  addSource(sources, seen, join(workDir, "NUOMI.local.md"));
-
-  return sources;
+/** Discover content plus include dependencies for future stat-only cache checks. */
+export function discoverInstructionState(workDir: string): InstructionDiscovery {
+  const sources: InstructionSource[] = [];//path和内容
+  const seen = new Set<string>();
+  const dependencies = new Set<string>();
+  //拿到当前工作目录的配置路径和系统配置路径
+  for (const candidate of getInstructionCandidatePaths(workDir)) {
+    addSource(sources, seen, dependencies, candidate);
+  }
+  return { sources, dependencies: [...dependencies] };
 }
 
 /** 尝试读取一个指令文件并添加到列表，支持 @include 展开 */
 function addSource(
   out: InstructionSource[],
   seen: Set<string>,
+  dependencies: Set<string>,
   filePath: string
 ): void {
   let abs: string;
@@ -114,7 +126,7 @@ function addSource(
   //把路径存起来
   seen.add(abs);
   //把内容，检索配置文件的路径，标记函数，递归次数
-  const content = expandIncludes(data, dirname(abs), seen, 0);
+  const content = expandIncludes(data, dirname(abs), seen, dependencies, 0);
   out.push({ path: abs, content });
 }
 
@@ -130,6 +142,7 @@ function expandIncludes(
   baseDir: string,
   //存储标记
   seen: Set<string>,
+  dependencies: Set<string>,
   // 递归次数
   depth: number
 ): string {
@@ -170,6 +183,7 @@ function expandIncludes(
             out.push(line);
             continue;
           }
+          dependencies.add(abs);
           if (!seen.has(abs)) {
             //没有读取过这个文件
             try {
@@ -180,7 +194,7 @@ function expandIncludes(
               //添加一个路径标记
               out.push(`<!-- included from ${includePath} -->`);
               //调用自己进行递归
-              out.push(expandIncludes(data, dirname(abs), seen, depth + 1));
+              out.push(expandIncludes(data, dirname(abs), seen, dependencies, depth + 1));
               continue;
             } catch {
               // 读取失败，保留原始行让用户看到

@@ -8,12 +8,20 @@ import type { UsageInfo } from "../types/llm.js";
  * not be included in the baseline. The next context calculation estimates that
  * response, along with tool results and later user messages, as new messages.
  */
-export function createUsageAnchor(usage: UsageInfo, anchorCount: number): UsageAnchor {
+export function createUsageAnchor(
+    usage: UsageInfo,
+    anchorCount: number,
+    staticRequestTokens = 0,
+): UsageAnchor {
+    const totalInputTokens =
+        usage.inputTokens +
+        usage.cacheReadInputTokens +
+        usage.cacheCreationInputTokens;
     return {
-        baselineTokens:
-            usage.inputTokens +
-            usage.cacheReadInputTokens +
-            usage.cacheCreationInputTokens,
+        // Static request content is estimated again from the current runtime
+        // context and tools. Keeping it out of the anchor prevents double
+        // counting and lets changed schemas/context take effect immediately.
+        baselineTokens: Math.max(0, totalInputTokens - staticRequestTokens),
         anchorCount,
     };
 }
