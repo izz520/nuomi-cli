@@ -18,6 +18,7 @@ import { MCPToolWrapper } from '../mcp/tool-wrapper.js'
 import { ToolResultCompactStateManger } from '../compact/state.js'
 import { RecoveryManager } from '../compact/recovery.js'
 import { RuntimeContextManager } from '../context/runtime-context.js'
+import { MemoryManager, MemoryScope } from '../memory/manager.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
     workDir: string
@@ -31,10 +32,20 @@ interface IChat {
     recoveryManager: RecoveryManager
     toolResultCompactManger: ToolResultCompactStateManger
     runtimeContextManager: RuntimeContextManager
+    memoryManager: MemoryManager
 }
 
 const FIRST_RESPONSE_TIMEOUT_MS = 60_000
 type SystemEvent = "exit"
+
+const MEMORY_TOOL_NAMES = new Set(["ReadMemory", "WriteMemory", "EditMemory"]);
+
+const isMemoryTool = (toolName: string): boolean => MEMORY_TOOL_NAMES.has(toolName);
+
+const memoryScope = (args: Record<string, unknown>): MemoryScope => {
+    if (args.scope === "user" || args.scope === "project") return args.scope;
+    throw new Error("Invalid memory scope");
+};
 
 type MessageAction =
     | { type: "append_user"; content: string }
@@ -126,7 +137,7 @@ const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMe
 
 
 
-const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, contextWindow, toolManager, messageManager, toolResultCompactManger, recoveryManager, runtimeContextManager }: IChat) => {
+const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, contextWindow, toolManager, messageManager, toolResultCompactManger, recoveryManager, runtimeContextManager, memoryManager }: IChat) => {
     // console.log("🚀 ~ Chat ~ instructions:", instructions)
     // console.log("🚀 ~ Chat ~ memReminder:", memReminder)
     const { exit } = useApp()
@@ -189,7 +200,11 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
         const controller = new AbortController();
         abortControllerRef.current = controller;
         //创建沙盒和权限
-        const checker = new PermissionChecker(workDir, permMode);
+        const checker = new PermissionChecker(workDir, permMode, (toolName, args) => {
+            if (!isMemoryTool(toolName)) return undefined;
+            return memoryManager.resolvePath(memoryScope(args), String(args.path ?? ""));
+        });
+        checker.addAllowedRoot(memoryManager.getRoot("user"));
         // 将沙箱状态注入权限检查器
         checker.sandboxEnabled = sandboxEnabledRef.current;
         checker.sandboxAutoAllow = sandboxAutoAllowRef.current;
@@ -229,7 +244,7 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
                     setIsWorking(false)
                     setPermissionRequest({
                         toolName,
-                        argsSummary: formatToolArgs(args),
+                        argsSummary: formatToolArgs(toolName, args),
                         reason: decision.reason,
                     });
                 });
@@ -425,10 +440,10 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
             case "EditFile":
                 return `Edit ${filePath}`;
             case "ReadMemory":
-                return `Read memory: ${String(args.scope ?? "project")}/${String(args.path ?? "MEMORY.md")}`;
+                return `Read ${formatMemoryTarget(args)}`;
             case "WriteMemory":
             case "EditMemory":
-                return `Write memory: ${String(args.scope ?? "project")}/${String(args.path ?? "MEMORY.md")}`;
+                return `Write ${formatMemoryTarget(args)}`;
             case "Glob":
                 return `Glob  ${pattern || "*"}${filePath === "." ? "" : ` in ${filePath}`}`;
             case "Grep": {
@@ -514,11 +529,22 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
         return "Tools complete";
     };
 
-    const formatToolArgs = (args: Record<string, unknown>): string => {
+    const formatToolArgs = (toolName: string, args: Record<string, unknown>): string => {
+        if (isMemoryTool(toolName)) return truncate(formatMemoryTarget(args), 120);
         if (args.command) return truncate(String(args.command), 80);
         if (args.file_path) return truncate(String(args.file_path), 80);
         if (args.pattern) return truncate(String(args.pattern), 80);
         return "";
+    };
+
+    const formatMemoryTarget = (args: Record<string, unknown>): string => {
+        try {
+            const scope = memoryScope(args);
+            const label = scope === "user" ? "User memory" : "Project memory";
+            return `${label} · ${memoryManager.formatDisplayPath(scope, String(args.path ?? ""))}`;
+        } catch {
+            return `Memory · invalid path (${String(args.path ?? "") || "missing"})`;
+        }
     };
 
     const handleSubmitAsk = (action: PermissionAction) => {

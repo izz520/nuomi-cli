@@ -92,6 +92,7 @@ export default function App() {
                 recoveryManager={recoveryManagerRef.current}
                 toolResultCompactManger={toolResultCompactMangerRef.current}
                 runtimeContextManager={runtimeContextManagerRef.current}
+                memoryManager={memManagerRef.current}
             />
         </Box>
     );

@@ -60,3 +60,13 @@ test("loadEntrypoint does not follow an index symlink outside memory", () => {
 
   assert.equal(manager.loadEntrypoint().project, "");
 });
+
+test("formatDisplayPath exposes the resolved scope root without an ambiguous user folder", () => {
+  const { manager, userDir } = fixture();
+
+  assert.equal(manager.formatDisplayPath("user", "preferences/language.md"), join(userDir, "preferences/language.md"));
+  assert.equal(manager.formatDisplayPath("project", "MEMORY.md"), ".nuomi/memory/MEMORY.md");
+
+  const standard = new MemoryManager(process.cwd());
+  assert.equal(standard.formatDisplayPath("user", "MEMORY.md"), "~/.nuomi/memory/MEMORY.md");
+});

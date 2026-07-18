@@ -21,10 +21,12 @@ export interface MemoryManagerOptions {
 export class MemoryManager {
   private readonly userDir: string;
   private readonly projectDir: string;
+  private readonly workDir: string;
 
   constructor(workDir: string, options: MemoryManagerOptions = {}) {
+    this.workDir = resolve(workDir);
     this.userDir = resolve(options.userDir ?? join(homedir(), ".nuomi", "memory"));
-    this.projectDir = resolve(options.projectDir ?? join(workDir, ".nuomi", "memory"));
+    this.projectDir = resolve(options.projectDir ?? join(this.workDir, ".nuomi", "memory"));
   }
 
   loadEntrypoint(): MemoryEntrypoints {
@@ -53,6 +55,20 @@ export class MemoryManager {
       user: join(this.userDir, MEMORY_INDEX_NAME),
       project: join(this.projectDir, MEMORY_INDEX_NAME),
     };
+  }
+
+  formatDisplayPath(scope: MemoryScope, memoryPath: string): string {
+    const target = this.resolvePath(scope, memoryPath);
+    const root = this.getRoot(scope);
+    const relativePath = relative(root, target).split(sep).join("/");
+    const standardUserRoot = resolve(homedir(), ".nuomi", "memory");
+    const standardProjectRoot = resolve(this.workDir, ".nuomi", "memory");
+    const displayRoot = scope === "user" && root === standardUserRoot
+      ? "~/.nuomi/memory"
+      : scope === "project" && root === standardProjectRoot
+        ? ".nuomi/memory"
+        : root;
+    return `${displayRoot}/${relativePath}`;
   }
 
   resolvePath(scope: MemoryScope, memoryPath: string): string {

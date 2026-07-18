@@ -11,6 +11,11 @@ export interface Decision {
   reason: string;
 }
 
+export type ToolPathResolver = (
+  toolName: string,
+  args: Record<string, unknown>,
+) => string | undefined;
+
 type RuleEffect = "allow" | "deny";
 
 interface Rule {
@@ -286,17 +291,27 @@ export class PermissionChecker {
   sandboxAutoAllow = false;
   private sandbox: PathSandbox;
   private ruleEngine: RuleEngine;
+  private toolPathResolver?: ToolPathResolver;
   // Layer 4b: 会话级临时放行集合（内存中，进程退出即失效）
   // key 格式 "ToolName:pattern"，匹配后直接放行，不写入磁盘
   private sessionAllowed = new Set<string>();
 
-  constructor(workDir: string, mode: PermissionMode = "default") {
+  constructor(
+    workDir: string,
+    mode: PermissionMode = "default",
+    toolPathResolver?: ToolPathResolver,
+  ) {
     //当前的模式
     this.mode = mode;
     //根据目录创建当前项目的沙盒
     this.sandbox = new PathSandbox(workDir);
     //创建权限存储的地方
     this.ruleEngine = new RuleEngine(workDir);
+    this.toolPathResolver = toolPathResolver;
+  }
+
+  addAllowedRoot(root: string): void {
+    this.sandbox.addRoot(root);
   }
 
   check(
@@ -304,8 +319,17 @@ export class PermissionChecker {
     category: "read" | "write" | "command",
     args: Record<string, unknown>
   ): Decision {
-    //获取必填参数
-    const content = extractContent(toolName, args);
+    let resolvedToolPath: string | undefined;
+    try {
+      resolvedToolPath = this.toolPathResolver?.(toolName, args);
+    } catch (error) {
+      return {
+        effect: "deny",
+        reason: `Invalid tool path: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+    //获取必填参数。专用文件工具优先使用安全解析后的真实路径。
+    const content = resolvedToolPath ?? extractContent(toolName, args);
 
     // Layer 0: plan-mode plan-file write exception.
     // Both WriteFile and EditFile targeting the plan file are allowed so the
@@ -343,7 +367,7 @@ export class PermissionChecker {
 
     // Layer 4: path sandbox (file tools only).
     //拿到文件路径，这里可能没有
-    const filePath = String(args.file_path ?? args.path ?? "");
+    const filePath = resolvedToolPath ?? String(args.file_path ?? args.path ?? "");
     if ((category === "read" || category === "write") && filePath) {
       // denyWrite 检查优先：敏感路径始终拒绝写入
       if (category === "write") {
@@ -381,7 +405,7 @@ export class PermissionChecker {
 
   // 会话级放行：仅在当前进程生命周期内生效，不写入磁盘
   allowForSession(toolName: string, args: Record<string, unknown>): void {
-    const content = extractContent(toolName, args);
+    const content = this.resolveContent(toolName, args);
     this.sessionAllowed.add(`${toolName}:${content}`);
   }
 
@@ -389,7 +413,7 @@ export class PermissionChecker {
   // tool's content field (capped at 60 chars) so it allows that specific
   // command/path family rather than the whole tool. Mirrors Go.
   allowAlways(toolName: string, args: Record<string, unknown>): void {
-    const content = extractContent(toolName, args);
+    const content = this.resolveContent(toolName, args);
     const pattern = content.length > 60 ? content.slice(0, 60) + "*" : content + "*";
     this.ruleEngine.appendLocalRule({ tool: toolName, pattern, effect: "allow" });
   }
@@ -400,7 +424,7 @@ export class PermissionChecker {
    * 无匹配时回退到 key:value 格式的参数摘要。
    */
   describeToolAction(toolName: string, args: Record<string, unknown>): string {
-    const content = extractContent(toolName, args);
+    const content = this.resolveContent(toolName, args);
     if (content) return content;
     // 回退：拼接所有参数的 key: value，截断过长值
     const parts: string[] = [];
@@ -410,5 +434,13 @@ export class PermissionChecker {
       parts.push(`${k}: ${s}`);
     }
     return parts.join(", ");
+  }
+
+  private resolveContent(toolName: string, args: Record<string, unknown>): string {
+    try {
+      return this.toolPathResolver?.(toolName, args) ?? extractContent(toolName, args);
+    } catch {
+      return extractContent(toolName, args);
+    }
   }
 }

@@ -33,6 +33,7 @@ class OpenAIClient {
             messageManager.getMessages(),
             options.runtimeContext,
         )
+        // console.log("🚀 ~ OpenAIClient ~ sendMessageStream ~ input:", input)
         // 格式化OpenAI支持的工具格式
         const formatTools: OpenAI.Responses.FunctionTool[] = tools.map((s) => {
             const schema = s.input_schema as Record<string, unknown>;
