@@ -19,6 +19,7 @@ import { ToolResultCompactStateManger } from '../compact/state.js'
 import { RecoveryManager } from '../compact/recovery.js'
 import { RuntimeContextManager } from '../context/runtime-context.js'
 import { MemoryManager, MemoryScope } from '../memory/manager.js'
+import { SendMessageHistory } from '../history/send-message.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
     workDir: string
@@ -153,12 +154,13 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
         argsSummary: string;
         reason: string;
     } | null>(null);
+    // 用户发送的历史记录
+    const sendMessageHistory = useRef<SendMessageHistory>(null)
+    if (sendMessageHistory.current === null) {
+        sendMessageHistory.current = new SendMessageHistory()
+    }
     // 沙箱相关状态
     const sandboxRef = useRef<Sandbox | null>(createSandbox());
-    // 沙盒总开关
-    const [sandboxEnabled, setSandboxEnabled] = useState(sandboxConfig.enabled ?? false);
-    //沙盒自动允许开关
-    const [sandboxAutoAllow, setSandboxAutoAllow] = useState(sandboxConfig.auto_allow ?? false);
     //沙盒总开关引用
     const sandboxEnabledRef = useRef(sandboxConfig.enabled ?? false);
     // 沙盒自动允许开关引用
@@ -187,6 +189,8 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
     }, [exit])
 
     const handleSubmit = useCallback(async (message: string) => {
+        sendMessageHistory.current?.sendMessage(message)
+
         if (!llmClient) return dispatchMessages({
             type: "append_assistant",
             phase: "error",
@@ -662,7 +666,11 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
         <Box flexDirection="column">
             <MessageList messages={messages} isWorking={isWorking} workingLabel={workingLabel} />
             {permissionRequest && <PermissionDialog toolName={permissionRequest.toolName} argsSummary={permissionRequest.argsSummary} reason={permissionRequest.reason} onComplete={handleSubmitAsk} />}
-            <PromptInput isWaiting={!!permissionRequest} onSubmit={handleSubmit} />
+            <PromptInput
+                isWaiting={!!permissionRequest}
+                history={sendMessageHistory.current.getAllMessage()}
+                onSubmit={handleSubmit}
+            />
             {showExitHint && (
                 <Box marginLeft={2}>
                     <Text dimColor>Press Ctrl+C again to exit.</Text>
