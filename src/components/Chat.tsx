@@ -208,11 +208,11 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
     }, [exit])
 
     const handleSubmit = useCallback(async (message: string) => {
-        console.log("🚀 ~ Chat ~ message:", message)
+        // console.log("🚀 ~ Chat ~ message:", message)
+        dispatchMessages({ type: "append_user", content: message })
+        sendMessageHistory.current?.sendMessage(message)
         const result = await handleSlashCommand(message)
         if (result) return
-        sendMessageHistory.current?.sendMessage(message)
-
         if (!llmClient) return dispatchMessages({
             type: "append_assistant",
             phase: "error",
@@ -276,7 +276,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
                 });
             },
         })
-        dispatchMessages({ type: "append_user", content: message })
+        // dispatchMessages({ type: "append_user", content: message })
         messageManager.addUserMessage(message)
 
         let hasReceivedResponse = false
@@ -466,7 +466,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
                 // `Memories:  ${new MemoryManager(workDir).getMemories().length}`,
                 // `Skills:    ${skillCatalogRef.current?.list().length ?? 0}`,
                 `MCP:       ${mcpInfo?.servers.length ?? 0} server(s), ${mcpInfo?.toolCount ?? 0} tool(s)`,
-                `Session:   ${sessionStorage.current}`,
+                // `Session:   ${sessionStorage.current}`,
                 `Directory: ${workDir}`,
             ];
             dispatchMessages({

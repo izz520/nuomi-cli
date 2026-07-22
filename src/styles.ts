@@ -26,6 +26,7 @@ export const symbols = {
   success: "✓",
   error: "✗",
   denied: "⊘",
+  system: "ℹ",
   arrow: "→",
   dot: "·",
   circle: "⏺",

@@ -155,6 +155,18 @@ const ToolGroupMessage = ({ message }: { message: ChatMessage }) => {
     );
 };
 
+const SystemMessage = ({ content }: { content: string }) => (
+    <Box flexDirection="row" flexShrink={1} flexGrow={1} width="100%">
+        <Box width={9} flexShrink={0}>
+            <Text color="cyan">{symbols.system} </Text>
+            <Text color="cyan" bold>System</Text>
+        </Box>
+        <Box flexShrink={1} flexGrow={1}>
+            <Text>{content}</Text>
+        </Box>
+    </Box>
+);
+
 
 const MessageList = ({ messages, isWorking, workingLabel }: MessageProps) => {
     // console.log("🚀 ~ MessageList ~ messages:", messages)
@@ -186,7 +198,9 @@ const MessageList = ({ messages, isWorking, workingLabel }: MessageProps) => {
                             marginTop={1}
                             backgroundColor={message.role === "user" ? "gray" : undefined}
                         >
-                            {message.phase === "tool_call" ? (
+                            {message.role === "system" ? (
+                                <SystemMessage content={renderedContent} />
+                            ) : message.phase === "tool_call" ? (
                                 <ToolGroupMessage message={message} />
                             ) : (
                                 <Box flexDirection="row" flexShrink={1} flexGrow={1}>
