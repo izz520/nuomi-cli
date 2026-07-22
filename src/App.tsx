@@ -32,7 +32,6 @@ export default function App() {
     const [llmClient, setLLMClient] = useState<AnthropicClient | OpenAIClient>();
     //当前使用的Provider
     const [selectProvider, setSelectProvider] = useState<ProviderConfig>(config.providers[0])
-    const [permMode, setPermMode] = useState<PermissionMode>("default")
     const memManagerRef = useRef<MemoryManager | null>(null)
     const runtimeContextManagerRef = useRef<RuntimeContextManager | null>(null)
     const messageManagerRef = useRef<MessageManager | null>(null);
@@ -83,7 +82,6 @@ export default function App() {
                 llmClient={llmClient}
                 changeProvider={setSelectProvider}
                 workDir={workDir}
-                permMode={permMode}
                 sandboxConfig={config.sandbox}
                 mcpServers={config.mcp_servers}
                 contextWindow={selectProvider.context_window}
@@ -93,6 +91,7 @@ export default function App() {
                 toolResultCompactManger={toolResultCompactMangerRef.current}
                 runtimeContextManager={runtimeContextManagerRef.current}
                 memoryManager={memManagerRef.current}
+                selectedProvider={selectProvider}
             />
         </Box>
     );

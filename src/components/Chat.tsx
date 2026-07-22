@@ -20,12 +20,11 @@ import { RecoveryManager } from '../compact/recovery.js'
 import { RuntimeContextManager } from '../context/runtime-context.js'
 import { MemoryManager, MemoryScope } from '../memory/manager.js'
 import { SendMessageHistory } from '../history/send-message.js'
-import { createCommandManager } from '../commands/commands.js'
+import { createCommandManager, parse as parseCommand } from '../commands/commands.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
     workDir: string
     changeProvider: (provider: ProviderConfig) => void
-    permMode: PermissionMode
     sandboxConfig: SandBoxConfig
     mcpServers: MCPServerConfig[]
     contextWindow: number | undefined
@@ -35,6 +34,7 @@ interface IChat {
     toolResultCompactManger: ToolResultCompactStateManger
     runtimeContextManager: RuntimeContextManager
     memoryManager: MemoryManager
+    selectedProvider: ProviderConfig
 }
 
 const FIRST_RESPONSE_TIMEOUT_MS = 60_000
@@ -61,6 +61,8 @@ type MessageAction =
         tools: Array<{ toolId: string; toolName: string; label: string }>;
     }
     | { type: "tool_finished"; toolId: string; output: string; isError: boolean; elapsed: number }
+    | { type: "append_system"; content: string }
+    | { type: "clear_message"; }
 
 // 处理UI侧显示的消息
 const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMessage[] => {
@@ -134,12 +136,24 @@ const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMe
                     },
                 };
             });
+        case "append_system": {
+            return [
+                ...messages,
+                {
+                    role: "system",
+                    content: action.content,
+                }
+            ];
+        }
+        case "clear_message": {
+            return []
+        }
     }
 };
 
 
 
-const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, contextWindow, toolManager, messageManager, toolResultCompactManger, recoveryManager, runtimeContextManager, memoryManager }: IChat) => {
+const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, toolManager, messageManager, toolResultCompactManger, recoveryManager, runtimeContextManager, memoryManager, selectedProvider }: IChat) => {
     // console.log("🚀 ~ Chat ~ instructions:", instructions)
     // console.log("🚀 ~ Chat ~ memReminder:", memReminder)
     const { exit } = useApp()
@@ -148,6 +162,9 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
     const [isWorking, setIsWorking] = useState(false)
     const [workingLabel, setWorkingLabel] = useState("Thinking")
     const [showExitHint, setShowExitHint] = useState(false)
+    const [inputTokens, setInputTokens] = useState(0);
+    const [outputTokens, setOutputTokens] = useState(0);
+    const [permMode, setPermMode] = useState<PermissionMode>("default")
     const cmdManagerRef = useRef(createCommandManager());
     const abortControllerRef = useRef<AbortController>(null)
     const permissionResolveRef = useRef<((v: "allow" | "deny" | "allowAlways") => void) | null>(null);
@@ -191,6 +208,9 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
     }, [exit])
 
     const handleSubmit = useCallback(async (message: string) => {
+        console.log("🚀 ~ Chat ~ message:", message)
+        const result = await handleSlashCommand(message)
+        if (result) return
         sendMessageHistory.current?.sendMessage(message)
 
         if (!llmClient) return dispatchMessages({
@@ -349,6 +369,10 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
                         setIsWorking(false)
                         break
                     }
+                    case "usage":
+                        setInputTokens((prev) => prev + event.usage.inputTokens);
+                        setOutputTokens((prev) => prev + event.usage.outputTokens);
+                        break;
                     case "error": {
                         setIsWorking(false)
                         dispatchMessages({
@@ -378,6 +402,343 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
             }
         }
     }, [llmClient, workDir])
+
+    const handleSlashCommand = async (text: string): Promise<boolean> => {
+        let parsed = parseCommand(text);
+        if (!parsed) return false;
+
+        // /mcp — show MCP server status
+        if (parsed.name === "mcp") {
+            if (!mcpInfo || mcpInfo.servers.length === 0) {
+                dispatchMessages({
+                    type: "append_system",
+                    content: "No MCP servers connected.",
+                })
+            } else {
+                const lines = [
+                    `MCP servers (${mcpInfo.servers.length}):`,
+                    ...mcpInfo.servers.map((s) => `  · ${s}`),
+                    `Tools: ${mcpInfo.toolCount} total`,
+                ];
+                dispatchMessages({
+                    type: "append_system",
+                    content: lines.join("\n"),
+                })
+            }
+            // usageTrackerRef.current.record("mcp");
+            return true;
+        }
+
+        // `/skill <name> [args]` shorthand: rewrite to `/<name> [args]` so it
+        // goes through the normal command registry path (skills are wired there).
+        // Exception: `/skill reload` routes to the /skills handler instead.
+        if (parsed.name === "skill" && parsed.args.trim()) {
+            const parts = parsed.args.trim().split(/\s+/);
+            if (parts[0] === "reload") {
+                parsed = { name: "skills", args: "reload" };
+            } else {
+                parsed = { name: parts[0], args: parts.slice(1).join(" ") };
+            }
+        }
+
+        const cmd = cmdManagerRef.current.find(parsed.name);
+        // if (cmd) usageTrackerRef.current.record(cmd.name);
+        if (!cmd) {
+            dispatchMessages({
+                type: "append_system",
+                content: `Unknown command: /${parsed.name}`,
+            })
+            return true;
+        }
+
+        // Rich status/memory commands need live app state, so handle them here.
+        if (cmd.name === "status") {
+            const sbStatus = sandboxEnabledRef.current
+                ? (sandboxAutoAllowRef.current ? "ON (auto-allow)" : "ON (manual)")
+                : "OFF";
+            const lines = [
+                `Mode:      ${permMode}`,
+                `Model:     ${selectedProvider.model}`,
+                `Provider:  ${selectedProvider.name} (${selectedProvider.protocol})`,
+                `Tokens:    ${inputTokens} in / ${outputTokens} out`,
+                `Tools:     ${toolManager.listTools().length}`,
+                `Sandbox:   ${sbStatus}`,
+                // `Memories:  ${new MemoryManager(workDir).getMemories().length}`,
+                // `Skills:    ${skillCatalogRef.current?.list().length ?? 0}`,
+                `MCP:       ${mcpInfo?.servers.length ?? 0} server(s), ${mcpInfo?.toolCount ?? 0} tool(s)`,
+                `Session:   ${sessionStorage.current}`,
+                `Directory: ${workDir}`,
+            ];
+            dispatchMessages({
+                type: "append_system",
+                content: lines.join("\n"),
+            })
+            // setMessages((prev) => [...prev, { role: "system", content: lines.join("\n") }]);
+            return true;
+        }
+        if (cmd.name === "permission") {
+            const parts = parsed.args.trim().split(/\s+/);
+            const modes: PermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
+            if (parts[0] === "mode" && parts[1]) {
+                if (modes.includes(parts[1] as PermissionMode)) {
+                    setPermMode(parts[1] as PermissionMode);
+                    dispatchMessages({
+                        type: "append_system",
+                        content: `Permission mode → ${parts[1]}`,
+                    })
+                } else {
+                    dispatchMessages({
+                        type: "append_system",
+                        content: `Unknown mode '${parts[1]}'. Valid: ${modes.join(", ")}`,
+                    })
+                }
+            } else {
+                dispatchMessages({
+                    type: "append_system",
+                    content:
+                        `Permission mode: ${permMode}\n` +
+                        "Change with shift+tab, or /permission mode <default|acceptEdits|plan|bypassPermissions>",
+                })
+            }
+            return true;
+        }
+
+        if (cmd.type === "local_ui") {
+            const action = cmd.handler({ workDir, args: parsed.args });
+            switch (action) {
+                case "clear":
+                    dispatchMessages({
+                        type: "clear_message",
+                    })
+                    // setMessages([]);
+                    // committedIndexRef.current = 0;
+                    messageManager.clear()
+                    break;
+                case "quit":
+                    exit();
+                    break;
+                case "plan": {
+                    // setPrePlanMode(permMode);
+                    setPermMode("plan");
+                    // const planPath = getOrCreatePlanPath(workDir);
+                    dispatchMessages({
+                        type: "append_system",
+                        content: `Entered plan mode (read-only). Plan file: ${""}\n` +
+                            "Investigate and design your approach. The agent will call ExitPlanMode when the plan is ready.",
+                    })
+                    // 重入检测：如果本次会话曾退出过 Plan Mode 且 plan 文件已存在，注入重入提示
+                    // if (hasExitedPlanModeRef.current && planExists(workDir)) {
+                    //     const reentryMsg = buildPlanModeReentryReminder(planPath, true);
+                    //     if (reentryMsg) {
+                    //         convRef.current.addSystemReminder(reentryMsg);
+                    //         setMessages((prev) => [
+                    //             ...prev,
+                    //             { role: "system", content: reentryMsg },
+                    //         ]);
+                    //     }
+                    //     hasExitedPlanModeRef.current = false;
+                    // }
+                    break;
+                }
+                // case "do": {
+                //     setPermMode("default");
+                //     // 标记本次会话已退出过 Plan Mode，后续重入时可注入提示
+                //     hasExitedPlanModeRef.current = true;
+                //     const planContent = loadPlan(workDir);
+                //     const exitPlanPath = getOrCreatePlanPath(workDir);
+                //     convRef.current.addSystemReminder(buildPlanModeExitReminder(exitPlanPath, !!planContent));
+                //     if (planContent && planContent.trim()) {
+                //         // Feed the approved plan back to the agent and execute it.
+                //         convRef.current.addUserMessage(
+                //             "The plan below has been approved. Exit plan mode and carry it out now.\n\n" +
+                //             "# Approved Plan\n" +
+                //             planContent
+                //         );
+                //         resetPlanPath();
+                //         setMessages((prev) => [...prev, { role: "system", content: "✓ Plan approved — executing." }]);
+                //         runAgentLoop("default");
+                //     } else {
+                //         setMessages((prev) => [...prev, { role: "system", content: "Exited plan mode." }]);
+                //     }
+                //     break;
+                // }
+                // case "compact":
+                //     if (clientRef.current) {
+                //         setMessages((prev) => [...prev, { role: "system", content: "Compacting conversation..." }]);
+                //         forceCompact(
+                //             convRef.current,
+                //             clientRef.current,
+                //             recoveryStateRef.current,
+                //             registryRef.current.listTools().map((t) => t.name)
+                //         ).then((result) => {
+                //             // Persist the boundary so the compacted state survives /resume.
+                //             if (result.boundary) {
+                //                 sessionMod.saveCompactBoundary(workDir, sessionIdRef.current, result.boundary);
+                //             }
+                //             setMessages((prev) => [...prev, { role: "system", content: `Compact: ${result.message}` }]);
+                //         }).catch((err) => {
+                //             setMessages((prev) => [...prev, { role: "system", content: `Compact failed: ${(err as Error).message}` }]);
+                //         });
+                //     }
+                //     break;
+                // case "resume": {
+                //     const arg = parsed.args.trim();
+                //     if (!arg) {
+                //         const sessions = sessionMod.listSessions(workDir);
+                //         if (sessions.length === 0) {
+                //             setMessages((prev) => [...prev, { role: "system", content: "No sessions found." }]);
+                //         } else {
+                //             const list = sessions
+                //                 .slice(0, 10)
+                //                 .map((s) => `  ${s.id} (${s.messageCount} msgs) — ${s.firstMessage}`)
+                //                 .join("\n");
+                //             setMessages((prev) => [
+                //                 ...prev,
+                //                 { role: "system", content: `Sessions (use /resume <id> to restore):\n${list}` },
+                //             ]);
+                //         }
+                //         break;
+                //     }
+
+                //     const saved = sessionMod.loadSession(workDir, arg);
+                //     if (saved.length === 0) {
+                //         setMessages((prev) => [...prev, { role: "system", content: `Session "${arg}" not found or empty.` }]);
+                //         break;
+                //     }
+
+                //     // Rebuild the conversation (with long-term memory re-injected) and the
+                //     // visible transcript from the saved messages, then continue under the
+                //     // resumed session id. rebuildFromSession honors compaction: if the
+                //     // session contains a compact_boundary it replays the compacted state
+                //     // (summary + inlined keep + post-boundary appends) instead of the full
+                //     // pre-boundary history; with no boundary it replays everything.
+                //     const conv = new ConversationManager();
+                //     conv.injectLongTermMemory(
+                //         loadInstructions(workDir),
+                //         new MemoryManager(workDir).buildSystemReminder()
+                //     );
+                //     const restored = sessionMod.rebuildFromSession(saved);
+                //     for (const m of restored) {
+                //         if (m.role === "user") conv.addUserMessage(m.content);
+                //         else conv.addAssistantMessage(m.content);
+                //     }
+                //     convRef.current = conv;
+                //     sessionIdRef.current = arg;
+                //     // Reload the task list for the resumed session.
+                //     taskListRef.current.useStore(new TaskStore(workDir, arg));
+                //     const resumedMessages: ChatMessage[] = [
+                //         ...restored,
+                //         { role: "system", content: `⟲ Resumed session ${arg} (${restored.length} messages).` },
+                //     ];
+                //     committedIndexRef.current = resumedMessages.length;
+                //     setMessages(resumedMessages);
+                //     break;
+                // }
+                // case "skills": {
+                //     const catalog = skillCatalogRef.current;
+                //     if (!catalog) {
+                //         setMessages((prev) => [...prev, { role: "system", content: "Skills: no catalog loaded." }]);
+                //     } else if (parsed.args.trim() === "reload") {
+                //         // /skills reload — 手动热加载
+                //         catalog.reload();
+                //         wireSkillsToRegistry(catalog, cmdRegistryRef.current, skillHostRef.current);
+                //         if (clientRef.current) {
+                //             const env = detectEnvironment(workDir);
+                //             env.model = selectedProvider.model;
+                //             const section = buildSkillSection(catalog, workDir);
+                //             clientRef.current.setSystemPrompt(buildSystemPrompt(env, { skillSection: section }));
+                //         }
+                //         const count = catalog.list().length;
+                //         setMessages((prev) => [...prev, { role: "system", content: `Skills reloaded. ${count} skill(s) available.` }]);
+                //     } else {
+                //         const skills = catalog.list();
+                //         if (skills.length === 0) {
+                //             setMessages((prev) => [...prev, { role: "system", content: "No skills found in .mewcode/skills/." }]);
+                //         } else {
+                //             const list = skills.map((s) => `  /${s.name} — ${s.description}`).join("\n");
+                //             setMessages((prev) => [...prev, { role: "system", content: `Available skills:\n${list}\n\nType /skills reload to hot-reload skills from disk.` }]);
+                //         }
+                //     }
+                //     break;
+                // }
+                // case "worktree": {
+                //     try {
+                //         const { execSync } = await import("node:child_process");
+                //         const output = execSync("git worktree list", { cwd: workDir, encoding: "utf-8" });
+                //         setMessages((prev) => [...prev, { role: "system", content: `Worktree list:\n${output}` }]);
+                //     } catch {
+                //         setMessages((prev) => [...prev, { role: "system", content: "Not a git repository or git worktree not available." }]);
+                //     }
+                //     break;
+                // }
+                // case "rewind": {
+                //     const fh = fileHistoryRef.current;
+                //     if (!fh || !fh.hasSnapshots()) {
+                //         setMessages((prev) => [...prev, { role: "system", content: "No checkpoints to rewind to." }]);
+                //     } else {
+                //         setRewindSnapshots(fh.getSnapshots());
+                //         setRewindDialogActive(true);
+                //     }
+                //     break;
+                // }
+                // case "sandbox": {
+                //     const arg = parsed.args.trim();
+                //     const sbAvailable = sandboxRef.current?.available() ?? false;
+                //     if (arg === "1" || arg === "on") {
+                //         // 模式 1：沙箱 + 自动放行
+                //         setSandboxEnabled(true);
+                //         setSandboxAutoAllow(true);
+                //         sandboxEnabledRef.current = true;
+                //         sandboxAutoAllowRef.current = true;
+                //         setMessages((prev) => [...prev, {
+                //             role: "system",
+                //             content: `Sandbox: ON + auto-allow${sbAvailable ? "" : " (sandbox tool not found, wrapping disabled)"}`,
+                //         }]);
+                //     } else if (arg === "2" || arg === "manual") {
+                //         // 模式 2：沙箱 + 常规权限
+                //         setSandboxEnabled(true);
+                //         setSandboxAutoAllow(false);
+                //         sandboxEnabledRef.current = true;
+                //         sandboxAutoAllowRef.current = false;
+                //         setMessages((prev) => [...prev, {
+                //             role: "system",
+                //             content: `Sandbox: ON + manual permissions${sbAvailable ? "" : " (sandbox tool not found, wrapping disabled)"}`,
+                //         }]);
+                //     } else if (arg === "3" || arg === "off") {
+                //         // 模式 3：关闭沙箱
+                //         setSandboxEnabled(false);
+                //         setSandboxAutoAllow(false);
+                //         sandboxEnabledRef.current = false;
+                //         sandboxAutoAllowRef.current = false;
+                //         setMessages((prev) => [...prev, {
+                //             role: "system",
+                //             content: "Sandbox: OFF",
+                //         }]);
+                //     } else {
+                //         // 显示当前状态和三种模式
+                //         const status = sandboxEnabled
+                //             ? (sandboxAutoAllow ? "ON + auto-allow" : "ON + manual")
+                //             : "OFF";
+                //         const lines = [
+                //             `Sandbox status: ${status}`,
+                //             `Platform tool: ${sbAvailable ? "available" : "not found"}`,
+                //             "",
+                //             "Usage: /sandbox <mode>",
+                //             "  1 (on)     — 开启沙箱 + 自动放行（推荐）",
+                //             "  2 (manual) — 开启沙箱 + 常规权限确认",
+                //             "  3 (off)    — 关闭沙箱",
+                //         ];
+                //         setMessages((prev) => [...prev, { role: "system", content: lines.join("\n") }]);
+                //     }
+                //     break;
+                // }
+            }
+            return true;
+        }
+
+
+        return false;
+    };
 
     const truncate = (s: string, max: number): string =>
         s.length > max ? s.slice(0, max) + "…" : s;

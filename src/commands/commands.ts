@@ -185,7 +185,7 @@ export function createCommandManager(): CommandManager {
     handler: (ctx) => {
       // 显示实际运行状态而非占位文本
       const lines: string[] = [];
-      lines.push("MewCode Status");
+      lines.push("Nuomi Status");
       lines.push("──────────────");
 
       // 权限模式

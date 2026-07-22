@@ -66,4 +66,7 @@ export class MessageManager {
             ...keep,
         ];
     }
+    clear() {
+        this.history = []
+    }
 }
