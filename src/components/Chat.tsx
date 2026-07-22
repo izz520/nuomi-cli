@@ -20,6 +20,7 @@ import { RecoveryManager } from '../compact/recovery.js'
 import { RuntimeContextManager } from '../context/runtime-context.js'
 import { MemoryManager, MemoryScope } from '../memory/manager.js'
 import { SendMessageHistory } from '../history/send-message.js'
+import { createCommandManager } from '../commands/commands.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
     workDir: string
@@ -147,6 +148,7 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
     const [isWorking, setIsWorking] = useState(false)
     const [workingLabel, setWorkingLabel] = useState("Thinking")
     const [showExitHint, setShowExitHint] = useState(false)
+    const cmdManagerRef = useRef(createCommandManager());
     const abortControllerRef = useRef<AbortController>(null)
     const permissionResolveRef = useRef<((v: "allow" | "deny" | "allowAlways") => void) | null>(null);
     const [permissionRequest, setPermissionRequest] = useState<{
@@ -667,6 +669,7 @@ const Chat = ({ llmClient, workDir, permMode, sandboxConfig, mcpServers, context
             <MessageList messages={messages} isWorking={isWorking} workingLabel={workingLabel} />
             {permissionRequest && <PermissionDialog toolName={permissionRequest.toolName} argsSummary={permissionRequest.argsSummary} reason={permissionRequest.reason} onComplete={handleSubmitAsk} />}
             <PromptInput
+                commands={cmdManagerRef.current.listCommands()}
                 isWaiting={!!permissionRequest}
                 history={sendMessageHistory.current.getAllMessage()}
                 onSubmit={handleSubmit}
