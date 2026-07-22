@@ -21,6 +21,7 @@ import { RuntimeContextManager } from '../context/runtime-context.js'
 import { MemoryManager, MemoryScope } from '../memory/manager.js'
 import { SendMessageHistory } from '../history/send-message.js'
 import { createCommandManager, parse as parseCommand } from '../commands/commands.js'
+import { nextPermissionMode, PERMISSION_MODE_ORDER } from '../premisson/modes.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
     workDir: string
@@ -165,6 +166,14 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
     const [inputTokens, setInputTokens] = useState(0);
     const [outputTokens, setOutputTokens] = useState(0);
     const [permMode, setPermMode] = useState<PermissionMode>("default")
+    const permModeRef = useRef<PermissionMode>("default")
+    const changePermissionMode = useCallback((nextMode: PermissionMode) => {
+        permModeRef.current = nextMode
+        setPermMode(nextMode)
+    }, [])
+    const cyclePermissionMode = useCallback(() => {
+        changePermissionMode(nextPermissionMode(permModeRef.current))
+    }, [changePermissionMode])
     const cmdManagerRef = useRef(createCommandManager());
     const abortControllerRef = useRef<AbortController>(null)
     const permissionResolveRef = useRef<((v: "allow" | "deny" | "allowAlways") => void) | null>(null);
@@ -226,7 +235,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
         const controller = new AbortController();
         abortControllerRef.current = controller;
         //创建沙盒和权限
-        const checker = new PermissionChecker(workDir, permMode, (toolName, args) => {
+        const checker = new PermissionChecker(workDir, permModeRef.current, (toolName, args) => {
             if (!isMemoryTool(toolName)) return undefined;
             return memoryManager.resolvePath(memoryScope(args), String(args.path ?? ""));
         });
@@ -478,10 +487,11 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
         }
         if (cmd.name === "permission") {
             const parts = parsed.args.trim().split(/\s+/);
-            const modes: PermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
+            const modes = PERMISSION_MODE_ORDER;
             if (parts[0] === "mode" && parts[1]) {
                 if (modes.includes(parts[1] as PermissionMode)) {
-                    setPermMode(parts[1] as PermissionMode);
+                    const nextMode = parts[1] as PermissionMode;
+                    changePermissionMode(nextMode);
                     dispatchMessages({
                         type: "append_system",
                         content: `Permission mode → ${parts[1]}`,
@@ -519,7 +529,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
                     break;
                 case "plan": {
                     // setPrePlanMode(permMode);
-                    setPermMode("plan");
+                    changePermissionMode("plan");
                     // const planPath = getOrCreatePlanPath(workDir);
                     dispatchMessages({
                         type: "append_system",
@@ -740,6 +750,11 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
         return false;
     };
 
+    const handlePromptSubmit = async (message: string): Promise<void> => {
+        if (await handleSlashCommand(message)) return;
+        await handleSubmit(message);
+    };
+
     const truncate = (s: string, max: number): string =>
         s.length > max ? s.slice(0, max) + "…" : s;
 
@@ -924,6 +939,10 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
     }
 
     useInput((input, key) => {
+        if (key.tab && key.shift && !permissionRequest) {
+            cyclePermissionMode()
+            return
+        }
         if (input === "c" && key.ctrl) {
             handleSystemEvent("exit")
         }
@@ -1033,7 +1052,8 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
                 commands={cmdManagerRef.current.listCommands()}
                 isWaiting={!!permissionRequest}
                 history={sendMessageHistory.current.getAllMessage()}
-                onSubmit={handleSubmit}
+                permissionMode={permMode}
+                onSubmit={(message) => void handlePromptSubmit(message)}
             />
             {showExitHint && (
                 <Box marginLeft={2}>

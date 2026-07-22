@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve, dirname, sep } from "node:path";
 import { homedir } from "node:os";
 import { dump, load } from "js-yaml";
 
@@ -57,6 +57,16 @@ const SAFE_PREFIXES = [
   "bun test", "bun run", "npm test", "npm run",
   "go test", "go build", "go vet",
   "python -c", "node -e",
+];
+
+// Plan mode uses a deliberately narrower command set. Commands such as
+// `npm run`, `go build`, `python -c`, and `node -e` can modify the filesystem
+// even without shell redirection, so they must not be treated as read-only.
+const PLAN_SAFE_PREFIXES = [
+  "ls", "pwd", "cat", "head", "tail", "wc", "date",
+  "whoami", "uname", "hostname", "which", "type", "file",
+  "git status", "git log", "git diff", "git branch",
+  "git show", "git rev-parse", "git remote",
 ];
 
 // Per-tool argument field treated as the "content" for safe/dangerous checks
@@ -266,6 +276,27 @@ function isSafeCommand(command: string): boolean {
   );
 }
 
+function isPlanSafeCommand(command: string): boolean {
+  const trimmed = command.trim();
+  if (
+    trimmed.includes(">") ||
+    trimmed.includes("|") ||
+    trimmed.includes(";") ||
+    trimmed.includes("&&") ||
+    trimmed.includes("$(") ||
+    trimmed.includes("`")
+  ) {
+    return false;
+  }
+
+  return PLAN_SAFE_PREFIXES.some(
+    (prefix) =>
+      trimmed === prefix ||
+      trimmed.startsWith(prefix + " ") ||
+      trimmed.startsWith(prefix + "\t")
+  );
+}
+
 function modeDecide(
   mode: PermissionMode,
   category: "read" | "write" | "command"
@@ -274,7 +305,7 @@ function modeDecide(
     case "bypassPermissions":
       return "allow";
     case "plan":
-      return category === "read" ? "allow" : "ask";
+      return category === "read" ? "allow" : "deny";
     case "acceptEdits":
       return category === "command" ? "ask" : "allow";
     case "default":
@@ -291,6 +322,7 @@ export class PermissionChecker {
   sandboxAutoAllow = false;
   private sandbox: PathSandbox;
   private ruleEngine: RuleEngine;
+  private projectDir: string;
   private toolPathResolver?: ToolPathResolver;
   // Layer 4b: 会话级临时放行集合（内存中，进程退出即失效）
   // key 格式 "ToolName:pattern"，匹配后直接放行，不写入磁盘
@@ -303,6 +335,8 @@ export class PermissionChecker {
   ) {
     //当前的模式
     this.mode = mode;
+    this.projectDir = resolve(workDir);
+    this.planFilePath = join(this.projectDir, ".nuomi", "plans");
     //根据目录创建当前项目的沙盒
     this.sandbox = new PathSandbox(workDir);
     //创建权限存储的地方
@@ -337,26 +371,33 @@ export class PermissionChecker {
     // against CategoryWrite (which covers both tools).
     //如果当前是计划模式并且工具为写文件或者编辑文件
     if (this.mode === "plan" && (toolName === "WriteFile" || toolName === "EditFile")) {
-      //拿到path路径
-      const path = String(args.file_path ?? "");
-      if (path.includes(".nuomi/plans/")) {
-        //是否编辑或者写的路径是.nuomi-cli/plans/，是的话允许写入
+      const path = resolve(this.projectDir, String(args.file_path ?? ""));
+      if (path.startsWith(this.planFilePath + sep)) {
         return { effect: "allow", reason: "Plan file write allowed in plan mode" };
       }
     }
 
-    // Layer 2: safe read-only command auto-allow (metachar-guarded).
-    //是终端命令，查看是否是安全
-    if (category === "command" && isSafeCommand(content)) {
-      return { effect: "allow", reason: "Safe read-only command" };
-    }
-
-    // Layer 3: dangerous command block — reason 记录具体匹配的模式
+    // Layer 2: dangerous command block — evaluate before any safe-prefix
+    // allow-list so commands such as `git branch -D` cannot bypass it.
     //检查是否是终端命令，是的话，查询是否是危险操作
     const dangerReason = category === "command" ? detectDangerous(content) : "";
     if (dangerReason) {
       //是危险操作
       return { effect: "deny", reason: `Dangerous command blocked: ${dangerReason}` };
+    }
+
+    // Layer 2.5: plan mode is a hard read-only boundary. It intentionally runs
+    // before sandbox auto-allow, session grants, and persisted permission rules.
+    if (this.mode === "plan" && category !== "read") {
+      if (category === "command" && isPlanSafeCommand(content)) {
+        return { effect: "allow", reason: "Plan mode: safe read-only command" };
+      }
+      return { effect: "deny", reason: "Plan mode is read-only" };
+    }
+
+    // Layer 3: safe command auto-allow (metachar-guarded).
+    if (category === "command" && isSafeCommand(content)) {
+      return { effect: "allow", reason: "Safe command" };
     }
 
     // Layer 3.5: 沙箱自动放行——OS 沙箱已隔离写入，非危险命令可跳过人工确认

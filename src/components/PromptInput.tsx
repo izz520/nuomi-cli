@@ -4,16 +4,19 @@ import React, { memo } from 'react'
 import { borderColors, symbols } from '../styles.js'
 import { navigatePromptHistory } from '../history/send-message.js'
 import type { Command } from '../commands/commands.js'
+import type { PermissionMode } from '../premisson/checker.js'
 import CommandList from './CommandList.js'
+import PermissionModeIndicator from './PermissionModeIndicator.js'
 
 interface PromptInputProps {
     isWaiting?: boolean
     onSubmit?: (value: string) => void
     commands: Command[]
     history?: readonly string[]
+    permissionMode?: PermissionMode
 }
 
-const PromptInput = ({ isWaiting, onSubmit, commands = [], history = [] }: PromptInputProps) => {
+const PromptInput = ({ isWaiting, onSubmit, commands = [], history = [], permissionMode = 'default' }: PromptInputProps) => {
     const [inputValue, setInputValue] = React.useState<string>('')
     const [inputRevision, setInputRevision] = React.useState(0)
     const [isCommandListDismissed, setIsCommandListDismissed] = React.useState(false)
@@ -105,6 +108,7 @@ const PromptInput = ({ isWaiting, onSubmit, commands = [], history = [] }: Promp
                     onInput={(input) => handleChange(inputValueRef.current + input)}
                 />
             )}
+            <PermissionModeIndicator mode={permissionMode} />
         </Box>
     )
 }

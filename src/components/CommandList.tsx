@@ -47,7 +47,7 @@ const CommandList = ({ commands, onSelect, onDismiss, onInput, onBackspace }: Co
             return
         }
 
-        if (key.return || key.tab) {
+        if (key.return || (key.tab && !key.shift)) {
             const selectedCommand = commands[positionRef.current.selectedIndex]
             if (selectedCommand) onSelect(selectedCommand)
             return
