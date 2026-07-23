@@ -1,0 +1,8 @@
+- rule: EditFile(/Users/yasol/ai_project/nuomi-cli/src/components/PromptInput*)
+  effect: allow
+- rule: WriteFile(/Users/yasol/ai_project/nuomi-cli/src/components/prompt-past*)
+  effect: allow
+- rule: EditFile(/Users/yasol/ai_project/nuomi-cli/src/components/PromptTextI*)
+  effect: allow
+- rule: EditFile(/Users/yasol/ai_project/nuomi-cli/src/components/prompt-past*)
+  effect: allow

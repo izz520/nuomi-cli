@@ -1,12 +1,18 @@
 import { Box, Text, useInput } from 'ink'
-import TextInput from 'ink-text-input'
 import React, { memo } from 'react'
 import { borderColors, symbols } from '../styles.js'
 import { navigatePromptHistory } from '../history/send-message.js'
+import {
+    expandPromptPastes,
+    insertPromptPaste,
+    retainVisiblePromptPastes,
+    type PendingPromptPaste,
+} from './prompt-paste.js'
 import type { Command } from '../commands/commands.js'
 import type { PermissionMode } from '../premisson/checker.js'
 import CommandList from './CommandList.js'
 import PermissionModeIndicator from './PermissionModeIndicator.js'
+import PromptTextInput from './PromptTextInput.js'
 
 interface PromptInputProps {
     isWaiting?: boolean
@@ -20,7 +26,9 @@ const PromptInput = ({ isWaiting, onSubmit, commands = [], history = [], permiss
     const [inputValue, setInputValue] = React.useState<string>('')
     const [inputRevision, setInputRevision] = React.useState(0)
     const [isCommandListDismissed, setIsCommandListDismissed] = React.useState(false)
+    const [pendingPastes, setPendingPastes] = React.useState<PendingPromptPaste[]>([])
     const inputValueRef = React.useRef('')
+    const pendingPastesRef = React.useRef<PendingPromptPaste[]>([])
     const historyIndexRef = React.useRef<number | null>(null)
     const draftRef = React.useRef('')
     const borderColor = borderColors.idle;
@@ -45,8 +53,25 @@ const PromptInput = ({ isWaiting, onSubmit, commands = [], history = [], permiss
         historyIndexRef.current = null
         draftRef.current = value
         inputValueRef.current = value
+        pendingPastesRef.current = retainVisiblePromptPastes(value, pendingPastesRef.current)
+        setPendingPastes(pendingPastesRef.current)
         setIsCommandListDismissed(false)
         setInputValue(value)
+    }
+
+    const handlePaste = (pastedValue: string, cursorOffset: number): string => {
+        historyIndexRef.current = null
+        const next = insertPromptPaste(
+            inputValueRef.current,
+            pendingPastesRef.current,
+            pastedValue,
+            cursorOffset,
+        )
+        pendingPastesRef.current = next.pendingPastes
+        setPendingPastes(next.pendingPastes)
+        handleChange(next.visibleValue)
+        setIsCommandListDismissed(true)
+        return next.visibleValue
     }
 
     const completeCommand = (command: Command) => {
@@ -54,6 +79,8 @@ const PromptInput = ({ isWaiting, onSubmit, commands = [], history = [], permiss
         historyIndexRef.current = null
         inputValueRef.current = completedValue
         draftRef.current = completedValue
+        pendingPastesRef.current = []
+        setPendingPastes([])
         setInputValue(completedValue)
         setIsCommandListDismissed(true)
         setInputRevision((revision) => revision + 1)
@@ -71,17 +98,22 @@ const PromptInput = ({ isWaiting, onSubmit, commands = [], history = [], permiss
         draftRef.current = next.draft
         historyIndexRef.current = next.index
         inputValueRef.current = next.value
+        pendingPastesRef.current = []
+        setPendingPastes([])
         setInputValue(next.value)
         setInputRevision((revision) => revision + 1)
     }, { isActive: !isWaiting && !isCommandListOpen })
 
     const handleSubmit = (value: string) => {
-        if (!value.trim()) return
+        const expandedValue = expandPromptPastes(value, pendingPastesRef.current)
+        if (!expandedValue.trim()) return
         setInputValue('')
         inputValueRef.current = ''
+        pendingPastesRef.current = []
+        setPendingPastes([])
         historyIndexRef.current = null
         draftRef.current = ''
-        onSubmit?.(value)
+        onSubmit?.(expandedValue)
     }
     return (
         <Box flexDirection="column">
@@ -96,7 +128,19 @@ const PromptInput = ({ isWaiting, onSubmit, commands = [], history = [], permiss
                     ? <Text dimColor>Waiting</Text>
                     : isCommandListOpen
                         ? <Text>{inputValue}<Text inverse>{' '}</Text></Text>
-                        : <TextInput key={inputRevision} value={inputValue} onChange={handleChange} onSubmit={handleSubmit} placeholder="Enter your message..." />}
+                        : <PromptTextInput
+                            key={inputRevision}
+                            value={inputValue}
+                            pendingPastes={pendingPastes}
+                            onChange={handleChange}
+                            onPaste={handlePaste}
+                            onDeletePaste={(paste) => {
+                                pendingPastesRef.current = pendingPastesRef.current.filter((candidate) => candidate !== paste)
+                                setPendingPastes(pendingPastesRef.current)
+                            }}
+                            onSubmit={handleSubmit}
+                            placeholder="Enter your message..."
+                        />}
             </Box>
             {isCommandListOpen && (
                 <CommandList
