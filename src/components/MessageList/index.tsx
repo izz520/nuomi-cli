@@ -71,9 +71,30 @@ const formatElapsed = (elapsed?: number): string => {
     return `${elapsed.toFixed(1)}s`;
 };
 
-const truncateLine = (value: string, max = 140): string => {
-    const firstLine = value.split(/\r?\n/, 1)[0].trim();
-    return firstLine.length > max ? firstLine.slice(0, max) + "…" : firstLine;
+const truncate = (value: string, max: number): string => {
+    return value.length > max ? value.slice(0, max) + "…" : value;
+};
+
+const DIAGNOSTIC_LINE = /\b(?:error|exception|failed|failure|denied|not found|no such file|timed out|timeout|cannot|can't|could not|refused|unavailable|invalid|missing|required)\b/i;
+
+export const summarizeToolError = (value: string, max = 140): string => {
+    const lines = value
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        // BashTool echoes the submitted command as context. It is useful in
+        // full output but is never the reason the command failed.
+        .filter((line) => !line.startsWith("$ "));
+
+    const exitCode = [...lines].reverse().find((line) => /^Exit code \d+/i.test(line));
+    const candidates = lines.filter((line) =>
+        !/^Exit code \d+/i.test(line)
+        && line !== "Traceback (most recent call last):"
+    );
+    const diagnostic = [...candidates].reverse().find((line) => DIAGNOSTIC_LINE.test(line));
+    const fallback = candidates.at(-1) ?? exitCode ?? "Tool call failed";
+
+    return truncate(diagnostic ?? fallback, max);
 };
 
 const ToolGroupMessage = ({ message }: { message: ChatMessage }) => {
@@ -94,7 +115,7 @@ const ToolGroupMessage = ({ message }: { message: ChatMessage }) => {
             : symbols.error;
     const resultColor = failedTools.length === 0 ? "green" : denied ? "yellow" : "red";
     const errorDetail = failedTools.length > 0
-        ? truncateLine(failedTools[0].output ?? "")
+        ? summarizeToolError(failedTools[0].output ?? "")
         : "";
 
     return (
