@@ -1,10 +1,11 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import type { Tool, ToolResult, ToolContext } from "../types/tools.js";
 import { intArg, strArg } from "./utils.js";
 import { BashDescription } from "./prompt.js";
 import type { Sandbox, SandboxConfig } from "../sandbox/index.js";
 
 const MAX_TIMEOUT = 600;
+const MAX_BUFFER = 10 * 1024 * 1024;
 
 // 命令退出码语义映射表：某些命令用非零退出码表示正常结果（如 grep 返回 1 表示未匹配到内容）
 // 值为判定"真正出错"的最小退出码阈值
@@ -111,42 +112,97 @@ export class BashTool implements Tool {
       actualCommand = this.sandbox.wrap(command, this.sandboxConfig);
     }
 
-    // stdout 和 stderr 合并到同一个 fd，与 Claude Code 的 merged fd 对齐
-    const result = spawnSync("bash", ["-c", actualCommand], {
-      cwd: ctx.workDir,
-      timeout: timeout * 1000,
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-      maxBuffer: 10 * 1024 * 1024,
+    if (ctx.abortSignal?.aborted) {
+      return { output: "Command cancelled", isError: true };
+    }
+
+    return new Promise<ToolResult>((resolve) => {
+      const child = spawn("bash", ["-c", actualCommand], {
+        cwd: ctx.workDir,
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: process.platform !== "win32",
+      });
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      let bufferedBytes = 0;
+      let settled = false;
+      let timedOut = false;
+      let cancelled = false;
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+      const finish = (result: ToolResult) => {
+        if (settled) return;
+        settled = true;
+        if (timeoutId) clearTimeout(timeoutId);
+        ctx.abortSignal?.removeEventListener("abort", handleAbort);
+        resolve(result);
+      };
+
+      const stop = () => {
+        if (child.killed) return;
+        if (process.platform !== "win32" && child.pid) {
+          try {
+            process.kill(-child.pid, "SIGTERM");
+            return;
+          } catch {
+            // Fall back to killing only the shell process.
+          }
+        }
+        child.kill("SIGTERM");
+      };
+
+      const handleAbort = () => {
+        cancelled = true;
+        stop();
+      };
+
+      const collect = (target: Buffer[], chunk: Buffer | string) => {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        bufferedBytes += buffer.length;
+        if (bufferedBytes > MAX_BUFFER) {
+          stop();
+          finish({ output: `Error: command output exceeded ${MAX_BUFFER} bytes`, isError: true });
+          return;
+        }
+        target.push(buffer);
+      };
+
+      child.stdout.on("data", (chunk: Buffer) => collect(stdout, chunk));
+      child.stderr.on("data", (chunk: Buffer) => collect(stderr, chunk));
+      child.on("error", (error) => {
+        finish({ output: `Error executing command: ${error.message}`, isError: true });
+      });
+      child.on("close", (code) => {
+        if (cancelled) {
+          finish({ output: "Command cancelled", isError: true });
+          return;
+        }
+        if (timedOut) {
+          finish({ output: `Error: command timed out after ${timeout}s`, isError: true });
+          return;
+        }
+
+        const exitCode = code ?? 0;
+        let output = `$ ${command}\n`;
+        output += Buffer.concat(stdout).toString("utf-8");
+        output += Buffer.concat(stderr).toString("utf-8");
+
+        if (exitCode !== 0) {
+          const hint = exitCodeHint(command, exitCode);
+          output += hint
+            ? `\nExit code ${exitCode} (${hint})`
+            : `\nExit code ${exitCode}`;
+        }
+
+        finish({ output, isError: interpretExitCode(command, exitCode) });
+      });
+
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        stop();
+      }, timeout * 1000);
+
+      ctx.abortSignal?.addEventListener("abort", handleAbort, { once: true });
     });
-
-    if (result.error && result.signal === "SIGTERM") {
-      return {
-        output: `Error: command timed out after ${timeout}s`,
-        isError: true,
-      };
-    }
-
-    if (result.error && !result.stdout && !result.stderr) {
-      return {
-        output: `Error executing command: ${result.error.message}`,
-        isError: true,
-      };
-    }
-
-    const exitCode = result.status ?? 0;
-    let output = `$ ${command}\n`;
-    // 合并 stdout 和 stderr，不加前缀
-    if (result.stdout) output += result.stdout;
-    if (result.stderr) output += result.stderr;
-
-    if (exitCode !== 0) {
-      const hint = exitCodeHint(command, exitCode);
-      output += hint
-        ? `\nExit code ${exitCode} (${hint})`
-        : `\nExit code ${exitCode}`;
-    }
-
-    return { output, isError: false };
   }
 }

@@ -24,6 +24,7 @@ const LoadingMessage = ({ label = "Working" }: { label?: string }) => {
             </Box>
             <Text dimColor>{label}</Text>
             {elapsedSeconds > 0 && <Text dimColor>{` · ${elapsedSeconds}s`}</Text>}
+            {elapsedSeconds >= 30 && <Text color="yellow">{` · Ctrl+C to stop`}</Text>}
         </Box>
     );
 };

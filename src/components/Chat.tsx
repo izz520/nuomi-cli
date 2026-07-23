@@ -40,6 +40,7 @@ interface IChat {
 }
 
 const FIRST_RESPONSE_TIMEOUT_MS = 60_000
+const NO_PROGRESS_TIMEOUT_MS = 120_000
 type SystemEvent = "exit"
 
 const MEMORY_TOOL_NAMES = new Set(["ReadMemory", "WriteMemory", "EditMemory"]);
@@ -51,7 +52,7 @@ const memoryScope = (args: Record<string, unknown>): MemoryScope => {
     throw new Error("Invalid memory scope");
 };
 
-type MessageAction =
+export type MessageAction =
     | { type: "append_user"; content: string }
     | { type: "append_assistant"; content: string; phase: MessagePhase; merge: boolean }
     | {
@@ -63,14 +64,20 @@ type MessageAction =
         tools: Array<{ toolId: string; toolName: string; label: string }>;
     }
     | { type: "tool_finished"; toolId: string; output: string; isError: boolean; elapsed: number }
+    | { type: "clear_tool_groups" }
     | { type: "append_system"; content: string }
     | { type: "clear_message"; }
 
 // 处理UI侧显示的消息
-const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMessage[] => {
+export const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMessage[] => {
     switch (action.type) {
         case "append_user":
-            return [...messages, { role: "user", content: action.content }];
+            // Keep the latest request's compact trace until the next request
+            // starts, then fold it away to avoid transcript growth.
+            return [
+                ...messages.filter((message) => message.phase !== "tool_call"),
+                { role: "user", content: action.content }
+            ];
         case "append_assistant": {
             const lastMessage = messages.at(-1);
             if (
@@ -97,8 +104,21 @@ const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMe
             ];
         }
         case "tool_group_started":
+            // Text emitted before a tool call is a progress preamble, not part of
+            // the final answer. Keep only one live work item in the transcript.
+            while (
+                messages.at(-1)?.role === "assistant"
+                && (
+                    messages.at(-1)?.phase === "thinking"
+                    || messages.at(-1)?.phase === "final_answer"
+                )
+            ) {
+                messages = messages.slice(0, -1);
+            }
+
             return [
-                ...messages,
+                ...messages.filter((message) => message.phase !== "tool_call"),
+                ...messages.filter((message) => message.phase === "tool_call").slice(-2),
                 {
                     role: "assistant",
                     content: action.title,
@@ -115,8 +135,8 @@ const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMe
                     },
                 },
             ];
-        case "tool_finished":
-            return messages.map((message) => {
+        case "tool_finished": {
+            const updatedMessages = messages.map((message) => {
                 const group = message.toolGroup;
                 if (!group?.tools.some((tool) => tool.toolId === action.toolId)) return message;
 
@@ -138,6 +158,10 @@ const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMe
                     },
                 };
             });
+            return updatedMessages;
+        }
+        case "clear_tool_groups":
+            return messages.filter((message) => message.phase !== "tool_call");
         case "append_system": {
             return [
                 ...messages,
@@ -235,6 +259,26 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
         //创建接口控制器，用来做取消操作
         const controller = new AbortController();
         abortControllerRef.current = controller;
+        let didTimeout = false
+        let inactivityTimeoutId: ReturnType<typeof setTimeout> | undefined
+        const clearInactivityTimeout = () => {
+            if (inactivityTimeoutId) clearTimeout(inactivityTimeoutId)
+            inactivityTimeoutId = undefined
+        }
+        const armInactivityTimeout = () => {
+            clearInactivityTimeout()
+            inactivityTimeoutId = setTimeout(() => {
+                didTimeout = true
+                controller.abort()
+                setIsWorking(false)
+                dispatchMessages({
+                    type: "append_assistant",
+                    phase: "error",
+                    content: "No progress for 120 seconds. Request stopped; please retry.",
+                    merge: false
+                })
+            }, NO_PROGRESS_TIMEOUT_MS)
+        }
         //创建沙盒和权限
         const checker = new PermissionChecker(workDir, permModeRef.current, (toolName, args) => {
             if (!isMemoryTool(toolName)) return undefined;
@@ -275,7 +319,8 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
             runtimeContextManager,
             // 权限异步等待用户选择后返回结果
             onPermissionRequest: async (toolName, args, decision) => {
-                return new Promise<"allow" | "deny" | "allowAlways">((resolve) => {
+                clearInactivityTimeout()
+                const response = await new Promise<"allow" | "deny" | "allowAlways">((resolve) => {
                     permissionResolveRef.current = resolve;
                     setIsWorking(false)
                     setPermissionRequest({
@@ -284,13 +329,14 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
                         reason: decision.reason,
                     });
                 });
+                armInactivityTimeout()
+                return response
             },
         })
         // dispatchMessages({ type: "append_user", content: message })
         messageManager.addUserMessage(message)
 
         let hasReceivedResponse = false
-        let didTimeout = false
         const timeoutId = setTimeout(() => {
             if (hasReceivedResponse) return
 
@@ -308,6 +354,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
         try {
             const loopResult = agent.startLoop()
             for await (const event of loopResult) {
+                armInactivityTimeout()
                 if (!hasReceivedResponse) {
                     hasReceivedResponse = true
                     clearTimeout(timeoutId)
@@ -315,20 +362,19 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
 
                 switch (event.type) {
                     case "thinking_start": {
-                        setIsWorking(false)
+                        setWorkingLabel("Thinking")
                         break
                     }
                     case "thinking_text": {
-                        setIsWorking(false)
-                        dispatchMessages({
-                            type: "append_assistant",
-                            content: event.text,
-                            phase: "thinking",
-                            merge: true
-                        })
+                        // Keep internal reasoning out of the transcript. The
+                        // uninterrupted status line already communicates work.
+                        setWorkingLabel("Thinking")
                         break;
                     }
                     case "stream_text": {
+                        // Once visible answer text is streaming, the answer itself
+                        // is the progress indicator. If tools are requested later,
+                        // tool_group_start turns the loading row back on.
                         setIsWorking(false)
                         dispatchMessages({
                             type: "append_assistant",
@@ -344,13 +390,14 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
                         break
                     }
                     case "tool_group_start": {
-                        setWorkingLabel("Running tools")
+                        const groupLabel = describeToolGroup(event.tools)
+                        setWorkingLabel(groupLabel)
                         setIsWorking(true)
                         dispatchMessages({
                             type: "tool_group_started",
                             groupId: event.groupId,
                             concurrent: event.concurrent,
-                            title: describeToolGroup(event.tools),
+                            title: groupLabel,
                             resultLabel: describeToolGroupResult(event.tools),
                             tools: event.tools.map((tool) => ({
                                 toolId: tool.toolId,
@@ -406,6 +453,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
             }
         } finally {
             clearTimeout(timeoutId)
+            clearInactivityTimeout()
             if (abortControllerRef.current === controller) {
                 abortControllerRef.current = null
                 setIsWorking(false)

@@ -76,24 +76,6 @@ const truncateLine = (value: string, max = 140): string => {
     return firstLine.length > max ? firstLine.slice(0, max) + "…" : firstLine;
 };
 
-const describeGroupSuccess = (group: ToolGroupState): string => {
-    if (group.title !== "Search project metadata") return group.resultLabel;
-
-    const matchedTool = group.tools.find((tool) =>
-        tool.status === "success"
-        && tool.output
-        && !/^No (matches|files)/i.test(tool.output)
-    );
-    const firstLine = matchedTool?.output?.split(/\r?\n/, 1)[0].trim() ?? "";
-    const matchedFile = firstLine.match(/^([^:\t]+?)(?::\d+:|$)/)?.[1];
-
-    if (!matchedFile) return "Project metadata search complete";
-    const subject = group.tools.some((tool) => /version/i.test(tool.label))
-        ? "version"
-        : "project metadata";
-    return `Found ${subject} in ${matchedFile}`;
-};
-
 const ToolGroupMessage = ({ message }: { message: ChatMessage }) => {
     const group = message.toolGroup;
     if (!group) return <Text>{message.content}</Text>;
@@ -111,9 +93,6 @@ const ToolGroupMessage = ({ message }: { message: ChatMessage }) => {
             ? symbols.denied
             : symbols.error;
     const resultColor = failedTools.length === 0 ? "green" : denied ? "yellow" : "red";
-    const resultLabel = failedTools.length === 0
-        ? describeGroupSuccess(group)
-        : `${failedTools.length} of ${group.tools.length} tools failed`;
     const errorDetail = failedTools.length > 0
         ? truncateLine(failedTools[0].output ?? "")
         : "";
@@ -122,33 +101,14 @@ const ToolGroupMessage = ({ message }: { message: ChatMessage }) => {
         <Box flexDirection="column">
             <Box>
                 <Box width={2} flexShrink={0}>
-                    <Text color="cyan">{symbols.tool}</Text>
+                    <Text color={resultColor}>{resultIcon}</Text>
                 </Box>
-                <Text>{group.title}</Text>
+                <Text dimColor={failedTools.length === 0}>{group.title}</Text>
+                {elapsed && <Text dimColor>{` · ${elapsed}`}</Text>}
             </Box>
-            {group.tools.map((tool, index) => {
-                const isLast = index === group.tools.length - 1;
-                const failed = tool.status === "error" || tool.status === "denied";
-                return (
-                    <Box key={tool.toolId} paddingLeft={2}>
-                        <Text dimColor={!failed} color={failed ? "red" : undefined}>
-                            {`${isLast ? "└" : "├"} ${tool.label}${failed ? " (failed)" : ""}`}
-                        </Text>
-                    </Box>
-                );
-            })}
-            {!running && (
-                <Box marginTop={1}>
-                    <Box width={2} flexShrink={0}>
-                        <Text color={resultColor}>{resultIcon}</Text>
-                    </Box>
-                    <Text>{resultLabel}</Text>
-                    {elapsed && <Text dimColor>{` · ${elapsed}`}</Text>}
-                </Box>
-            )}
             {!running && errorDetail && (
                 <Box paddingLeft={2}>
-                    <Text dimColor>{errorDetail}</Text>
+                    <Text color={denied ? "yellow" : "red"} dimColor>{errorDetail}</Text>
                 </Box>
             )}
         </Box>
@@ -174,6 +134,15 @@ const MessageList = ({ messages, isWorking, workingLabel }: MessageProps) => {
         <>
             <Box flexDirection="column" marginBottom={1}>
                 {messages.map((message, index) => {
+                    // The shared loading row represents the active step. Once a
+                    // step finishes, render its compact result in the trace.
+                    if (
+                        message.phase === "tool_call"
+                        && message.toolGroup?.tools.some((tool) => tool.status === "running")
+                    ) {
+                        return null;
+                    }
+
                     const content = message.content.replace(/^\r?\n/, "");
                     const renderedContent = message.phase === "tool_call"
                         ? content
@@ -219,7 +188,7 @@ const MessageList = ({ messages, isWorking, workingLabel }: MessageProps) => {
                     );
                 })}
             </Box>
-            {isWorking && <LoadingMessage key={workingLabel} label={workingLabel} />}
+            {isWorking && <LoadingMessage label={workingLabel} />}
         </>
 
     )

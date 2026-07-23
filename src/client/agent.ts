@@ -308,6 +308,7 @@ export class Agent {
         const events: AgentEvent[] = [];
         const taskManger = new ToolExecutManger(this.toolManger, {
             workDir: this.workDir,
+            abortSignal: this.abortSignal,
         })
         for (const tl of cateTools) {
             //判断工具分类
