@@ -16,7 +16,7 @@ export class CommandUsageTracker {
   private filePath: string;
 
   constructor(workDir: string) {
-    const dir = join(workDir, ".mewcode");
+    const dir = join(workDir, ".nuomi");
     this.filePath = join(dir, "command_usage.json");
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     this.load();

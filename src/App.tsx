@@ -23,6 +23,13 @@ import { GrepTool } from "./tools/grep.js";
 import { BashTool } from "./tools/bash.js";
 import { ToolSearchTool } from "./tools/tool-search.js";
 import { EditMemoryTool, ReadMemoryTool, WriteMemoryTool } from "./tools/memory.js";
+import { SkillManager } from "./skills/manager.js";
+import { LoadSkillTool } from "./tools/load-skill-tool.js";
+import { SkillHost } from "./types/skill.js";
+import { InstallSkillTool } from "./tools/install-skill-tool.js";
+import { Command, CommandManager, createCommandManager } from "./commands/commands.js";
+import { runInline } from "./skills/executor.js";
+import { Skill } from "openai/resources";
 
 const workDir = process.cwd()
 const config = loadConfig();
@@ -37,6 +44,12 @@ export default function App() {
     const messageManagerRef = useRef<MessageManager | null>(null);
     const toolManagerRef = useRef<ToolsManger | null>(null);
     const recoveryManagerRef = useRef<RecoveryManager | null>(null)
+    const activeSkillsRef = useRef(new Map<string, string>());
+    const skillManagerRef = useRef<SkillManager | null>(null)
+    const cmdManagerRef = useRef(createCommandManager());
+    const skillHostRef = useRef<SkillHost>({
+        activateSkill: (name, body) => activeSkillsRef.current.set(name, body),
+    });
     const toolResultCompactMangerRef = useRef<ToolResultCompactStateManger | null>(null);
     if (messageManagerRef.current === null) {
         messageManagerRef.current = new MessageManager();
@@ -65,11 +78,64 @@ export default function App() {
         // console.log("🚀 ~ createClient ~ env:", env)
         //设置env的model为provider的model
         env.model = selectProvider.model;
+        //加载skills
+        // 创建SKill管理器
+        const skillManager = new SkillManager();
+        // 把配置目录的skill全部加载进entries中
+        skillManager.load(workDir);
+        // 把当前skill的管理器存储起来
+        skillManagerRef.current = skillManager;
+        // console.log("🚀 ~ App ~ skillManager:", skillManager)
+        writeSkillToCommand(skillManager, cmdManagerRef.current, skillHostRef.current);
         //将对象转变为string的系统提示词
-        const systemPrompt = buildSystemPrompt(env);
+        const systemPrompt = buildSystemPrompt(env, skillManager, workDir);
+        // 注册加载SKill的Tool工具
+        toolManagerRef.current?.register(new LoadSkillTool(skillManager, skillHostRef.current));
+        toolManagerRef.current?.register(new InstallSkillTool(workDir, skillManager, () => {
+            // 把新的Skill加入到cmd中
+            writeSkillToCommand(skillManager, cmdManagerRef.current, skillHostRef.current);
+            // 安装后刷新系统提示词
+            const updatedPrompt = buildSystemPrompt(env, skillManager, workDir);
+            client.setSystemPrompt(updatedPrompt);
+        }));
         const client = createClient({ provider: selectProvider, systemPrompt: systemPrompt })
         setLLMClient(client)
     }, [selectProvider, workDir])
+
+    // 写入skill到cmd里面
+    function writeSkillToCommand(
+        skillManager: SkillManager,
+        cmdRegistry: CommandManager,
+        skillHost: SkillHost
+    ): void {
+        // console.log("🚀 ~ writeSkillToCommand ~ skillManager:", skillManager)
+        for (const meta of skillManager.list()) {
+            console.log("🚀 ~ writeSkillToCommand ~ meta:", meta)
+            // Don't shadow existing built-in or user commands.
+            if (cmdRegistry.find(meta.name)) continue;
+
+            const skill = skillManager.get(meta.name);
+            if (!skill) continue;
+
+            const isFork = skill.meta.mode === "fork";
+
+            const cmd: Command = {
+                name: meta.name,
+                aliases: [],
+                type: isFork ? "skill_fork" : "prompt",
+                description: `${meta.description} [skill]`,
+                handler: isFork
+                    ? () => ""   // fork dispatch handled in executeCommand before handler
+                    : (ctx) => runInline(skill, ctx.args, skillHost),
+            };
+            console.log("🚀 ~ writeSkillToCommand ~ cmd:", cmd)
+            try {
+                cmdRegistry.register(cmd);
+            } catch {
+                // name clash → keep the existing command
+            }
+        }
+    }
 
     useEffect(() => {
         initClient()
@@ -84,6 +150,7 @@ export default function App() {
                 workDir={workDir}
                 sandboxConfig={config.sandbox}
                 mcpServers={config.mcp_servers}
+                commandManager={cmdManagerRef.current}
                 contextWindow={selectProvider.context_window}
                 messageManager={messageManagerRef.current}
                 toolManager={toolManagerRef.current}

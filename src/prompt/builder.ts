@@ -15,13 +15,17 @@ import {
   toneStyleSection,
   outputEfficiencySection,
   environmentSection,
+  skillSection
 } from "./sections.js";
+import { SkillManager } from "../skills/manager.js";
 
 export class PromptBuilder {
   private sections: Section[] = [];
 
-  add(s: Section): this {
-    this.sections.push(s);
+  add(s: Section | null): this {
+    if (s) {
+      this.sections.push(s);
+    }
     return this;
   }
 
@@ -88,6 +92,8 @@ export interface BuildOptions {
 
 export function buildSystemPrompt(
   env: EnvironmentContext,
+  skillManager: SkillManager,
+  workDir: string,
   opts: BuildOptions = {}
 ): string {
   const b = new PromptBuilder();
@@ -96,6 +102,7 @@ export function buildSystemPrompt(
   b.add(doingTasksSection());
   b.add(executingActionsSection());
   b.add(usingToolsSection());
+  b.add(skillSection(skillManager, workDir));
   b.add(toneStyleSection());
   b.add(outputEfficiencySection());
   b.add(environmentSection(env));

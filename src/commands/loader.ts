@@ -6,7 +6,7 @@
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import yaml from "js-yaml";
+import { load } from "js-yaml";
 import type { Command } from "./commands.js";
 
 // Loads user-defined slash commands from .mewcode/commands/*.md (user then
@@ -91,7 +91,7 @@ function parseCommandFile(base: string, full: string): Command | null {
       body = raw.slice(end + 3).trim();
       try {
         //通过yarml的形式读取frontmatter，转化成key value的形式
-        const p = yaml.load(frontmatter) as Record<string, unknown> | null;
+        const p = load(frontmatter) as Record<string, unknown> | null;
         //从p中拿到description
         description = (p?.description as string) ?? "";
         //从p中拿到argumentHint

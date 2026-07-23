@@ -6,7 +6,7 @@ export const SKIP_DIRS = new Set([
     ".nuxt",
     "dist",
     "build",
-    ".mewcode",
+    ".nuomi",
     ".claude",
     "vendor",
     ".venv",

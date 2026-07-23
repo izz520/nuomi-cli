@@ -230,6 +230,10 @@ class OpenAIClient {
             }
         }
     }
+
+    setSystemPrompt(newSystemPrompt: string) {
+        this.systemPrompt = newSystemPrompt
+    }
 }
 
 export function buildOpenAIRequestInput(

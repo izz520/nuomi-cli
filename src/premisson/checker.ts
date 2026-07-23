@@ -206,9 +206,9 @@ export class RuleEngine {
   private localPath: string;
 
   constructor(workDir: string) {
-    this.userPath = join(homedir(), ".mewcode", "permissions.yaml");
-    this.projectPath = join(workDir, ".mewcode", "permissions.yaml");
-    this.localPath = join(workDir, ".mewcode", "permissions.local.yaml");
+    this.userPath = join(homedir(), ".nuomi", "permissions.yaml");
+    this.projectPath = join(workDir, ".nuomi", "permissions.yaml");
+    this.localPath = join(workDir, ".nuomi", "permissions.local.yaml");
   }
 
   // Loads the three rule files fresh on every call (so a just-written

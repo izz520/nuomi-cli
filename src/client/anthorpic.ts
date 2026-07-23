@@ -243,6 +243,10 @@ class AnthropicClient {
             },
         };
     }
+
+    setSystemPrompt(newSystemPrompt: string) {
+        this.systemPrompt = newSystemPrompt
+    }
 }
 
 export function buildAnthropicRequestMessages(

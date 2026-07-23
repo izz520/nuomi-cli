@@ -20,7 +20,7 @@ import { RecoveryManager } from '../compact/recovery.js'
 import { RuntimeContextManager } from '../context/runtime-context.js'
 import { MemoryManager, MemoryScope } from '../memory/manager.js'
 import { SendMessageHistory } from '../history/send-message.js'
-import { createCommandManager, parse as parseCommand } from '../commands/commands.js'
+import { CommandManager, createCommandManager, parse as parseCommand } from '../commands/commands.js'
 import { nextPermissionMode, PERMISSION_MODE_ORDER } from '../premisson/modes.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
@@ -36,6 +36,7 @@ interface IChat {
     runtimeContextManager: RuntimeContextManager
     memoryManager: MemoryManager
     selectedProvider: ProviderConfig
+    commandManager: CommandManager
 }
 
 const FIRST_RESPONSE_TIMEOUT_MS = 60_000
@@ -154,7 +155,7 @@ const messagesReducer = (messages: ChatMessage[], action: MessageAction): ChatMe
 
 
 
-const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, toolManager, messageManager, toolResultCompactManger, recoveryManager, runtimeContextManager, memoryManager, selectedProvider }: IChat) => {
+const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, toolManager, messageManager, toolResultCompactManger, recoveryManager, runtimeContextManager, memoryManager, selectedProvider, commandManager }: IChat) => {
     // console.log("🚀 ~ Chat ~ instructions:", instructions)
     // console.log("🚀 ~ Chat ~ memReminder:", memReminder)
     const { exit } = useApp()
@@ -174,7 +175,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
     const cyclePermissionMode = useCallback(() => {
         changePermissionMode(nextPermissionMode(permModeRef.current))
     }, [changePermissionMode])
-    const cmdManagerRef = useRef(createCommandManager());
+    // const cmdManagerRef = useRef(createCommandManager());
     const abortControllerRef = useRef<AbortController>(null)
     const permissionResolveRef = useRef<((v: "allow" | "deny" | "allowAlways") => void) | null>(null);
     const [permissionRequest, setPermissionRequest] = useState<{
@@ -450,7 +451,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
             }
         }
 
-        const cmd = cmdManagerRef.current.find(parsed.name);
+        const cmd = commandManager.find(parsed.name);
         // if (cmd) usageTrackerRef.current.record(cmd.name);
         if (!cmd) {
             dispatchMessages({
@@ -1049,7 +1050,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
             <MessageList messages={messages} isWorking={isWorking} workingLabel={workingLabel} />
             {permissionRequest && <PermissionDialog toolName={permissionRequest.toolName} argsSummary={permissionRequest.argsSummary} reason={permissionRequest.reason} onComplete={handleSubmitAsk} />}
             <PromptInput
-                commands={cmdManagerRef.current.listCommands()}
+                commands={commandManager.listCommands()}
                 isWaiting={!!permissionRequest}
                 history={sendMessageHistory.current.getAllMessage()}
                 permissionMode={permMode}

@@ -3,6 +3,9 @@
 // Agent网站：xiaolinnote.com
 // 简历模版：jianli.xiaolinnote.com
 
+import { join } from "node:path";
+import { SkillManager } from "../skills/manager.js";
+
 export interface Section {
   name: string;
   priority: number;
@@ -164,11 +167,32 @@ export function usingToolsSection(): Section {
       "例如用 query \"select:AskUserQuestion\" 加载用户提问工具。",
   };
 }
+export function skillSection(skillManager: SkillManager, workDir: string): Section | null {
+  const metas = skillManager.list();
+  if (metas.length === 0) return null;
+  const skillsDir = join(workDir, ".nuomi", "skills");
+  const lines = [
+    "## Available Skills\n",
+    `Skills are installed at: ${skillsDir}`,
+    "When creating new skills, always place them under this directory as <skill-name>/SKILL.md.\n",
+    "Only Skill names and one-line descriptions are listed below. To activate a Skill on demand call the LoadSkill tool with {name: \"<skill-name>\"}. After activation the Skill's full SOP gets pinned to the environment context, and any tools the Skill declares get registered. Users can also invoke a Skill directly with /<name>.\n",
+    "If the user pastes a Skill URL (skills.sh, github.com tree URL, or raw SKILL.md URL) and asks to install / add / get it, call the InstallSkill tool with {url: \"<url>\"} — the new Skill becomes available immediately afterwards.\n",
+  ];
+  for (const meta of metas) {
+    const desc = meta.description.length > 200 ? meta.description.slice(0, 200) + "…" : meta.description;
+    lines.push(`- /${meta.name}: ${desc}`);
+  }
+  return {
+    name: "Skill",
+    priority: 50,
+    content: lines.join("\n")
+  }
+}
 
 export function toneStyleSection(): Section {
   return {
     name: "ToneStyle",
-    priority: 50,
+    priority: 60,
     content:
       "# 语气与风格\n" +
       " - 除非用户明确要求，否则不要用 emoji。" +
@@ -184,7 +208,7 @@ export function toneStyleSection(): Section {
 export function outputEfficiencySection(): Section {
   return {
     name: "TextOutput",
-    priority: 60,
+    priority: 70,
     content:
       "# 文本输出（不适用于工具调用）\n" +
       "\n" +
@@ -239,7 +263,7 @@ export function environmentSection(env: EnvironmentContext): Section {
   lines.push(` - 日期: ${env.date}`);
   return {
     name: "Environment",
-    priority: 70,
+    priority: 80,
     content: lines.join("\n"),
   };
 }
