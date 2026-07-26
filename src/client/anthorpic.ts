@@ -10,14 +10,16 @@ class AnthropicClient {
     private client: Anthropic;
     private config: ProviderConfig;
     private systemPrompt: string
+    private model: string
 
-    constructor(provider: ProviderConfig, systemPrompt: string) {
+    constructor(provider: ProviderConfig, systemPrompt: string, model?: string) {
         this.client = new Anthropic({
             apiKey: provider.api_key,
             baseURL: provider.base_url
         });
         this.config = provider;
         this.systemPrompt = systemPrompt
+        this.model = model ?? this.config.model
     }
 
     getSystemPrompt(): string {
@@ -51,7 +53,7 @@ class AnthropicClient {
         });
         //构建参数
         const params = {
-            model: this.config.model,
+            model: this.model,
             max_tokens: 1024,
             system: this.systemPrompt,
             messages: convrtMessage,

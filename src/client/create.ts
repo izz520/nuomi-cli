@@ -8,13 +8,14 @@ import writeLog from '../utils/writeLog.js';
 interface CreateClientProps {
     provider: ProviderConfig;
     systemPrompt: string
+    model?: string
 }
-const createClient = ({ provider, systemPrompt }: CreateClientProps) => {
+const createClient = ({ provider, systemPrompt, model }: CreateClientProps) => {
     switch (provider.protocol) {
         case "anthropic":
-            return new AnthropicClient(provider, systemPrompt);
+            return new AnthropicClient(provider, systemPrompt, model);
         case "openai":
-            return new OpenAIClient(provider, systemPrompt);
+            return new OpenAIClient(provider, systemPrompt, model);
         default:
             throw new Error(`Unsupported provider: ${provider}`);
     }

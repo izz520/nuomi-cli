@@ -24,13 +24,13 @@ interface IAgentConfig {
     messageManager: MessageManager,
     toolManger: ToolsManger,
     workDir: string,
-    abortSignal: AbortSignal,
+    abortSignal?: AbortSignal,
     permissionCheck: PermissionChecker
-    toolResultCompactManger: ToolResultCompactStateManger
-    contextWindow: number | undefined
-    recoveryManager: RecoveryManager
-    runtimeContextManager: RuntimeContextManager
-    hookManager: HookManager
+    toolResultCompactManger?: ToolResultCompactStateManger
+    contextWindow?: number | undefined
+    recoveryManager?: RecoveryManager
+    runtimeContextManager?: RuntimeContextManager
+    hookManager?: HookManager
     onPermissionRequest?: (
         toolName: string,
         args: Record<string, unknown>,
@@ -48,27 +48,27 @@ export class Agent {
     private client: AnthropicClient | OpenAIClient
     private toolManger: ToolsManger
     private usageAnchor: UsageAnchor | null = null;
-    private abortSignal: AbortSignal
+    private abortSignal: AbortSignal | undefined
     private workDir: string;
     private permissionCheck: PermissionChecker;
-    private toolResultCompactManger: ToolResultCompactStateManger;
+    private toolResultCompactManger: ToolResultCompactStateManger
     private contextWindow: number
     private maxOutput = 8192
     private autoCompactRetryCount = new AutoCompactRetryCount()
     private recoveryManager: RecoveryManager
-    private runtimeContextManager: RuntimeContextManager
-    private hookManager: HookManager
+    private runtimeContextManager: RuntimeContextManager | undefined
+    private hookManager: HookManager | undefined
     private onPermissionRequest: IAgentConfig['onPermissionRequest']
     constructor({ client, messageManager, workDir, abortSignal, permissionCheck, toolManger, toolResultCompactManger, contextWindow, recoveryManager, runtimeContextManager, hookManager, onPermissionRequest }: IAgentConfig) {
         this.client = client
         this.messageManager = messageManager
         this.toolManger = toolManger
         this.workDir = workDir
-        this.abortSignal = abortSignal
+        this.abortSignal = abortSignal ? abortSignal : undefined
         this.permissionCheck = permissionCheck
-        this.toolResultCompactManger = toolResultCompactManger
+        this.toolResultCompactManger = toolResultCompactManger ?? new ToolResultCompactStateManger();
         this.contextWindow = contextWindow ?? 200000
-        this.recoveryManager = recoveryManager
+        this.recoveryManager = recoveryManager ?? new RecoveryManager();
         this.runtimeContextManager = runtimeContextManager
         this.hookManager = hookManager
         this.onPermissionRequest = onPermissionRequest
@@ -83,7 +83,7 @@ export class Agent {
         while (looping) {
             let toolSchemas = this.toolManger.getAllSchemas();
             //拿到指令+长期记忆的prompt
-            const runtimeContext = this.runtimeContextManager.buildMessage();
+            const runtimeContext = this.runtimeContextManager?.buildMessage() || "";
             //计算系统提示词+指令+长期记忆+工具的token大概是多少
             const staticRequestTokens = estimateStaticRequestTokens(
                 this.client.getSystemPrompt(),

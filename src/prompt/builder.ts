@@ -92,8 +92,8 @@ export interface BuildOptions {
 
 export function buildSystemPrompt(
   env: EnvironmentContext,
-  skillManager: SkillManager,
-  workDir: string,
+  skillManager?: SkillManager,
+  workDir?: string,
   opts: BuildOptions = {}
 ): string {
   const b = new PromptBuilder();
@@ -102,13 +102,12 @@ export function buildSystemPrompt(
   b.add(doingTasksSection());
   b.add(executingActionsSection());
   b.add(usingToolsSection());
-  b.add(skillSection(skillManager, workDir));
   b.add(toneStyleSection());
   b.add(outputEfficiencySection());
   b.add(environmentSection(env));
 
-  if (opts.skillSection) {
-    b.add({ name: "Skills", priority: 90, content: opts.skillSection });
+  if (skillManager && workDir) {
+    b.add(skillSection(skillManager, workDir));
   }
 
   return b.build();

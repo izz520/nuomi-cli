@@ -31,6 +31,8 @@ import { Command, CommandManager, createCommandManager } from "./commands/comman
 import { runInline } from "./skills/executor.js";
 import { Skill } from "openai/resources";
 import { HookManager, validateHooks } from "./hooks/hooks.js";
+import { AgentTool } from "./tools/agent-tool.js";
+import { spawnSubAgent } from "./subAgent/spawn.js";
 
 const workDir = process.cwd()
 const config = loadConfig();
@@ -51,6 +53,10 @@ export default function App() {
     const hookManagerRef = useRef<HookManager | null>(null)
     const cmdManagerRef = useRef(createCommandManager());
     const hookError = useRef<Error | null>(null);
+    const subagentIdRef = useRef(0);
+    const [subagents, setSubagents] = useState<
+        { id: number; label: string; turn: number; lastTool?: string }[]
+    >([]);
     const skillHostRef = useRef<SkillHost>({
         activateSkill: (name, body) => activeSkillsRef.current.set(name, body),
     });
@@ -93,6 +99,8 @@ export default function App() {
         writeSkillToCommand(skillManager, cmdManagerRef.current, skillHostRef.current);
         //将对象转变为string的系统提示词
         const systemPrompt = buildSystemPrompt(env, skillManager, workDir);
+        const client = createClient({ provider: selectProvider, systemPrompt: systemPrompt })
+        setLLMClient(client)
         // 注册加载SKill的Tool工具
         toolManagerRef.current?.register(new LoadSkillTool(skillManager, skillHostRef.current));
         toolManagerRef.current?.register(new InstallSkillTool(workDir, skillManager, () => {
@@ -106,8 +114,24 @@ export default function App() {
         const hookErr = validateHooks(config.hooks);
         hookError.current = hookErr
         hookManagerRef.current = new HookManager(config.hooks);
-        const client = createClient({ provider: selectProvider, systemPrompt: systemPrompt })
-        setLLMClient(client)
+        // 注册Agent的工具
+        toolManagerRef.current?.register(
+            new AgentTool(workDir, toolManagerRef.current, async (subAgent, prompt, _bg, modelOverride?) => {
+                //拿到本次创建的subAgent的id
+                const id = ++subagentIdRef.current;
+                // 把本次的subagent存储起来
+                setSubagents((prev) => [...prev, { id, label: subAgent.name, turn: 0 }]);
+                // 更新sub agent的动态
+                const onProgress = (p: { turn?: number; lastTool?: string }) =>
+                    setSubagents((prev) => prev.map((s) => (s.id === id ? { ...s, ...p } : s)));
+                try {
+                    return await spawnSubAgent(subAgent, prompt, client, toolManagerRef.current!, selectProvider, workDir, onProgress, undefined, modelOverride);
+                } finally {
+                    //子Agent调用结束之后，清楚记录 
+                    setSubagents((prev) => prev.filter((s) => s.id !== id));
+                }
+            })
+        );
     }, [selectProvider, workDir])
 
     // 写入skill到cmd里面

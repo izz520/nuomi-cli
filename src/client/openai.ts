@@ -12,14 +12,16 @@ class OpenAIClient {
     private client: OpenAI;
     private config: ProviderConfig;
     private systemPrompt: string
+    private model: string
 
-    constructor(provider: ProviderConfig, systemPrompt: string) {
+    constructor(provider: ProviderConfig, systemPrompt: string, model?: string) {
         this.config = provider;
         this.client = new OpenAI({
             apiKey: provider.api_key,
             baseURL: provider.base_url
         });
         this.systemPrompt = systemPrompt
+        this.model = model ?? this.config.model
     }
 
     getSystemPrompt(): string {
@@ -47,7 +49,7 @@ class OpenAIClient {
         });
         //构造params参数
         const params: OpenAI.Responses.ResponseCreateParamsStreaming = {
-            model: this.config.model,
+            model: this.model,
             input,
             stream: true,
             max_output_tokens: 8192,
