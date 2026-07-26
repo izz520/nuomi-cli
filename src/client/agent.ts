@@ -344,7 +344,7 @@ export class Agent {
             //是否是读取，读取可以并发读取
             const concurrent = category === "read"
             const decision = this.permissionCheck.check(tl.toolName, category, tl.arguments);
-            console.log("🚀 ~ Agent ~ categoryTools ~ decision:", decision)
+            // console.log("🚀 ~ Agent ~ categoryTools ~ decision:", decision)
             if (decision.effect === "deny") {
                 //权限拒绝
                 events.push({

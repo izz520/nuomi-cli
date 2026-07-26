@@ -36,7 +36,7 @@ import { spawnSubAgent } from "./subAgent/spawn.js";
 
 const workDir = process.cwd()
 const config = loadConfig();
-console.log("🚀 ~ config:", config)
+// console.log("🚀 ~ config:", config)
 export default function App() {
 
     // console.log("🚀 ~ App ~ config:", config)
@@ -152,7 +152,7 @@ export default function App() {
     ): void {
         // console.log("🚀 ~ writeSkillToCommand ~ skillManager:", skillManager)
         for (const meta of skillManager.list()) {
-            console.log("🚀 ~ writeSkillToCommand ~ meta:", meta)
+            // console.log("🚀 ~ writeSkillToCommand ~ meta:", meta)
             // Don't shadow existing built-in or user commands.
             if (cmdRegistry.find(meta.name)) continue;
 
@@ -170,7 +170,7 @@ export default function App() {
                     ? () => ""   // fork dispatch handled in executeCommand before handler
                     : (ctx) => runInline(skill, ctx.args, skillHost),
             };
-            console.log("🚀 ~ writeSkillToCommand ~ cmd:", cmd)
+            // console.log("🚀 ~ writeSkillToCommand ~ cmd:", cmd)
             try {
                 cmdRegistry.register(cmd);
             } catch {
