@@ -1,4 +1,6 @@
 export type ProviderProtocol = "anthropic" | "openai";
+export type SubAgentModelTier = "fast" | "standard" | "strong";
+export type SubAgentModelConfig = Partial<Record<SubAgentModelTier, string>>;
 
 export interface ProviderConfig {
     name: string;
@@ -9,6 +11,7 @@ export interface ProviderConfig {
     thinking?: boolean;
     context_window?: number;
     max_output_tokens?: number;
+    subagent_models?: SubAgentModelConfig;
 }
 
 

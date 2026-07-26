@@ -1,7 +1,15 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { load } from "js-yaml";
-import type { HookConfig, MCPServerConfig, ProviderConfig, ProviderProtocol, SandBoxConfig } from "./types/provider.js";
+import type {
+    HookConfig,
+    MCPServerConfig,
+    ProviderConfig,
+    ProviderProtocol,
+    SandBoxConfig,
+    SubAgentModelConfig,
+    SubAgentModelTier,
+} from "./types/provider.js";
 
 export type AppConfig = {
     providers: ProviderConfig[];
@@ -61,6 +69,38 @@ function assertString(value: unknown, key: string, providerName: string): string
     return value;
 }
 
+const SUBAGENT_MODEL_TIERS = new Set<SubAgentModelTier>([
+    "fast",
+    "standard",
+    "strong",
+]);
+
+function normalizeSubagentModels(
+    value: unknown,
+    providerName: string,
+): SubAgentModelConfig | undefined {
+    if (value === undefined) return undefined;
+    if (!isRecord(value)) {
+        throw new Error(`subagent_models for provider "${providerName}" must be a YAML object.`);
+    }
+
+    const models: SubAgentModelConfig = {};
+    for (const [tier, model] of Object.entries(value)) {
+        if (!SUBAGENT_MODEL_TIERS.has(tier as SubAgentModelTier)) {
+            throw new Error(
+                `Unsupported subagent_models tier "${tier}" for provider "${providerName}".`,
+            );
+        }
+        if (typeof model !== "string" || model.trim().length === 0) {
+            throw new Error(
+                `subagent_models.${tier} for provider "${providerName}" must be a non-empty string.`,
+            );
+        }
+        models[tier as SubAgentModelTier] = model.trim();
+    }
+    return models;
+}
+
 function normalizeProvider(provider: RawProviderConfig, index: number): ProviderConfig {
     const providerName = typeof provider.name === "string" && provider.name.length > 0
         ? provider.name
@@ -80,6 +120,7 @@ function normalizeProvider(provider: RawProviderConfig, index: number): Provider
         thinking: typeof provider.thinking === "boolean" ? provider.thinking : undefined,
         context_window: typeof provider.context_window === "number" ? provider.context_window : undefined,
         max_output_tokens: typeof provider.max_output_tokens === "number" ? provider.max_output_tokens : undefined,
+        subagent_models: normalizeSubagentModels(provider.subagent_models, providerName),
     };
 }
 

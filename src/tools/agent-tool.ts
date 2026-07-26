@@ -40,12 +40,7 @@ export class AgentTool implements Tool {
   /** 可选：用于生成队友的 RunAgent 回调。 */
   private teamRunAgent?: RunAgent;
 
-  private spawnHandler: (
-    subAgent: SubAgent,
-    prompt: string,
-    background: boolean,
-    modelOverride?: string,
-  ) => Promise<string>;
+  private spawnHandler: (request: SubAgentRunRequest) => Promise<string>;
 
   private forkHandler?: (
     prompt: string,
@@ -60,7 +55,7 @@ export class AgentTool implements Tool {
     // 工具管理器
     toolManager: ToolsManger,
     // 创建子Agent的回调函数
-    spawnHandler: (subAgent: SubAgent, prompt: string, bg: boolean, modelOverride?: string) => Promise<string>,
+    spawnHandler: (request: SubAgentRunRequest) => Promise<string>,
     // 消息管理器
     messageManager?: MessageManager,
     // fork的回调函数
@@ -104,8 +99,9 @@ export class AgentTool implements Tool {
           },
           model: {
             type: "string",
-            enum: ["sonnet", "opus", "haiku"],
-            description: "Override the model for this agent.",
+            description:
+              "Override the model using a capability tier (fast, standard, strong) " +
+              "or a full model ID supported by the active provider.",
           },
           run_in_background: { type: "boolean", description: "Run in background", default: false },
           team_name: {
@@ -150,7 +146,7 @@ When tasks are independent, launch multiple sub-agents in parallel by making mul
     return desc;
   }
 
-  async execute(args: Record<string, unknown>, _ctx: ToolContext): Promise<ToolResult> {
+  async execute(args: Record<string, unknown>, ctx?: ToolContext): Promise<ToolResult> {
     const description = strArg(args, "description");
     const prompt = strArg(args, "prompt");
     if (!description || !prompt) {
@@ -183,8 +179,14 @@ When tasks are independent, launch multiple sub-agents in parallel by making mul
     }
 
     try {
-      //拿到结果
-      const output = await this.spawnHandler(subAgent, prompt, background || !!subAgent.background, modelOverride);
+      const output = await this.spawnHandler({
+        subAgent,
+        description,
+        prompt,
+        background: background || !!subAgent.background,
+        modelOverride: modelOverride || undefined,
+        abortSignal: ctx?.abortSignal,
+      });
       // 返回给调用的Agent
       return { output, isError: false };
     } catch (err) {
@@ -282,4 +284,13 @@ When tasks are independent, launch multiple sub-agents in parallel by making mul
       };
     }
   }
+}
+
+export interface SubAgentRunRequest {
+  subAgent: SubAgent;
+  description: string;
+  prompt: string;
+  background: boolean;
+  modelOverride?: string;
+  abortSignal?: AbortSignal;
 }

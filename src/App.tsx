@@ -116,7 +116,8 @@ export default function App() {
         hookManagerRef.current = new HookManager(config.hooks);
         // 注册Agent的工具
         toolManagerRef.current?.register(
-            new AgentTool(workDir, toolManagerRef.current, async (subAgent, prompt, _bg, modelOverride?) => {
+            new AgentTool(workDir, toolManagerRef.current, async (request) => {
+                const { subAgent, prompt, modelOverride, abortSignal } = request;
                 //拿到本次创建的subAgent的id
                 const id = ++subagentIdRef.current;
                 // 把本次的subagent存储起来
@@ -125,7 +126,16 @@ export default function App() {
                 const onProgress = (p: { turn?: number; lastTool?: string }) =>
                     setSubagents((prev) => prev.map((s) => (s.id === id ? { ...s, ...p } : s)));
                 try {
-                    return await spawnSubAgent(subAgent, prompt, client, toolManagerRef.current!, selectProvider, workDir, onProgress, undefined, modelOverride);
+                    return await spawnSubAgent({
+                        subAgent,
+                        prompt,
+                        parentToolManager: toolManagerRef.current!,
+                        parentProvider: selectProvider,
+                        workDir,
+                        onProgress,
+                        modelOverride,
+                        abortSignal,
+                    });
                 } finally {
                     //子Agent调用结束之后，清楚记录 
                     setSubagents((prev) => prev.filter((s) => s.id !== id));

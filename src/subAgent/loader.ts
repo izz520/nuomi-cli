@@ -1,9 +1,17 @@
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import yaml from "js-yaml";
+import { load } from "js-yaml";
 import { BUILTIN_AGENTS } from "./internal-agent.js";
 import { SubAgent } from "../types/subAgent.js";
+import type { PermissionMode } from "../premisson/checker.js";
+
+const PERMISSION_MODES = new Set<PermissionMode>([
+  "default",
+  "acceptEdits",
+  "plan",
+  "bypassPermissions",
+]);
 
 /**
  * 加载 Agent 定义：内置 → 用户级 (~/.mewcode/agents/) → 项目级 (.mewcode/agents/)。
@@ -58,7 +66,7 @@ function loadDir(dir: string, subAgents: SubAgent[]): void {
   }
 }
 
-function parseAgentDefinition(content: string): SubAgent | null {
+export function parseAgentDefinition(content: string): SubAgent | null {
   // 如果不是---开头，表示不规范，直接返回null
   if (!content.startsWith("---")) return null;
   // 找到---结束的位置
@@ -72,23 +80,56 @@ function parseAgentDefinition(content: string): SubAgent | null {
 
   try {
     // 解析头信息
-    const raw = yaml.load(frontmatter) as Record<string, unknown> | null;
-    // 头信息不存在，也返回null
-    if (!raw?.name) return null;
+    const raw = load(frontmatter) as Record<string, unknown> | null;
+    if (!raw || typeof raw.name !== "string" || !raw.name.trim()) return null;
+    if (raw.description !== undefined && typeof raw.description !== "string") return null;
+    if (!isOptionalStringArray(raw.tools) || !isOptionalStringArray(raw.disallowed_tools)) return null;
+    if (!isOptionalString(raw.system_prompt) || !isOptionalString(raw.model)) return null;
+    if (
+      raw.max_turns !== undefined
+      && (!Number.isInteger(raw.max_turns) || (raw.max_turns as number) <= 0)
+    ) return null;
+    if (raw.background !== undefined && typeof raw.background !== "boolean") return null;
+    if (
+      raw.permission_mode !== undefined
+      && (
+        typeof raw.permission_mode !== "string"
+        || !PERMISSION_MODES.has(raw.permission_mode as PermissionMode)
+      )
+    ) return null;
+    if (raw.isolation !== undefined && raw.isolation !== "worktree") return null;
+    if (raw.omit_mewcode_md !== undefined && typeof raw.omit_mewcode_md !== "boolean") return null;
+    if (!isOptionalStringArray(raw.skills) || !isOptionalStringArray(raw.mcp_servers)) return null;
+    if (raw.memory !== undefined && typeof raw.memory !== "boolean") return null;
+
     // 返回头信息以及body信息
     return {
-      name: raw.name as string,
+      name: raw.name.trim(),
       description: (raw.description as string) ?? body.slice(0, 200),
       tools: raw.tools as string[] | undefined,
       disallowedTools: raw.disallowed_tools as string[] | undefined,
       systemPromptOverride: raw.system_prompt as string | undefined,
       maxTurns: raw.max_turns as number | undefined,
       model: raw.model as string | undefined,
+      permissionMode: raw.permission_mode as PermissionMode | undefined,
       background: raw.background as boolean | undefined,
       isolation: raw.isolation as "worktree" | undefined,
       initialPrompt: body || undefined,
+      omitMewcodeMd: raw.omit_mewcode_md as boolean | undefined,
+      skills: raw.skills as string[] | undefined,
+      memory: raw.memory as boolean | undefined,
+      mcpServers: raw.mcp_servers as string[] | undefined,
     };
   } catch {
     return null;
   }
+}
+
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === "string";
+}
+
+function isOptionalStringArray(value: unknown): boolean {
+  return value === undefined
+    || (Array.isArray(value) && value.every((entry) => typeof entry === "string"));
 }

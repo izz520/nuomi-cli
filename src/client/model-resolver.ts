@@ -1,18 +1,31 @@
-import type { ProviderConfig } from "../types/provider.js";
+import type { ProviderConfig, SubAgentModelTier } from "../types/provider.js";
 import createClient from "../client/create.js";
 import AnthropicClient from "./anthorpic.js";
 import OpenAIClient from "./openai.js";
 
-// Short aliases the model field of an agent definition may use. Unknown names
-// pass through unchanged so a full model id still works. Mirrors Go modelAliases.
-const MODEL_ALIASES: Record<string, string> = {
-  haiku: "claude-haiku-4-5-20251001",
-  sonnet: "claude-sonnet-4-6-20250514",
-  opus: "claude-opus-4-6-20250514",
-};
+const MODEL_TIERS = new Set<SubAgentModelTier>([
+  "fast",
+  "standard",
+  "strong",
+]);
 
-export function resolveModelId(shortName: string): string {
-  return MODEL_ALIASES[shortName] ?? shortName;
+export function resolveModelId(
+  requestedModel: string | undefined,
+  provider: ProviderConfig,
+): string {
+  const requested = requestedModel?.trim();
+  if (!requested) return provider.model;
+
+  const tier = MODEL_TIERS.has(requested as SubAgentModelTier)
+    ? requested as SubAgentModelTier
+    : undefined;
+
+  // subagent_models is intentionally optional and may be partially configured.
+  // A missing tier always falls back to the provider's known-good default model.
+  if (tier) return provider.subagent_models?.[tier] ?? provider.model;
+
+  // Non-tier values are treated as provider-specific full model IDs.
+  return requested;
 }
 
 // Returns a function that builds a client for a given short model name, reusing
@@ -23,5 +36,9 @@ export function createModelResolver(
   systemPrompt: string
 ): (shortName: string) => AnthropicClient | OpenAIClient {
   return (shortName: string) =>
-    createClient({ provider: baseCfg, systemPrompt: systemPrompt, model: resolveModelId(shortName) },);
+    createClient({
+      provider: baseCfg,
+      systemPrompt,
+      model: resolveModelId(shortName, baseCfg),
+    });
 }

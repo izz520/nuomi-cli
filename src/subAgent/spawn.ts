@@ -11,6 +11,8 @@ import { filterToolsForAgent } from "../tools/tool-filter.js";
 import AnthropicClient from "../client/anthorpic.js";
 import OpenAIClient from "../client/openai.js";
 
+export const DEFAULT_SUBAGENT_MAX_TURNS = 20;
+
 export type AgentEventSink = (event: {
   type: string;
   toolName?: string;
@@ -19,41 +21,76 @@ export type AgentEventSink = (event: {
   text?: string;
 }) => void;
 
-export async function spawnSubAgent(
-  // 当前subagent
-  subAgent: SubAgent,
-  // 系统提示词
-  prompt: string,
-  // 父级client
-  parentClient: AnthropicClient | OpenAIClient,
-  //父级的工具管理器
-  parentToolManager: ToolsManger,
-  // 父级的provider
-  parentProvider: ProviderConfig,
-  // 当前的工作目录
-  workDir: string,
-  // 点击
+export interface SpawnSubAgentOptions {
+  subAgent: SubAgent;
+  prompt: string;
+  parentToolManager: ToolsManger;
+  parentProvider: ProviderConfig;
+  workDir: string;
   onProgress?: (p: { turn?: number; lastTool?: string }) => void,
-  // 事件
-  onEvent?: AgentEventSink,
-  // 复写model
-  modelOverride?: string,
-): Promise<string> {
+  onEvent?: AgentEventSink;
+  modelOverride?: string;
+  abortSignal?: AbortSignal;
+  clientFactory?: typeof createClient;
+}
+
+export class SubAgentRunError extends Error {
+  constructor(message: string, readonly partialOutput = "") {
+    super(message);
+    this.name = "SubAgentRunError";
+  }
+}
+
+export function buildSubAgentSystemPrompt(
+  subAgent: SubAgent,
+  workDir: string,
+  model: string,
+): string {
+  const override = subAgent.systemPromptOverride?.trim();
+  if (override) return override;
+
+  const env = detectEnvironment(workDir);
+  env.model = model;
+  const basePrompt = buildSystemPrompt(env);
+  const rolePrompt = subAgent.initialPrompt?.trim();
+  return rolePrompt
+    ? `${basePrompt}\n\n# Sub-agent role\n${rolePrompt}`
+    : basePrompt;
+}
+
+export async function spawnSubAgent({
+  subAgent,
+  prompt,
+  parentToolManager,
+  parentProvider,
+  workDir,
+  onProgress,
+  onEvent,
+  modelOverride,
+  abortSignal,
+  clientFactory = createClient,
+}: SpawnSubAgentOptions): Promise<string> {
+  if (abortSignal?.aborted) {
+    throw abortSignal.reason instanceof Error
+      ? abortSignal.reason
+      : new Error("Sub-agent run aborted");
+  }
+
   // 确定模型：调用级 override > 定义级 model > 父 Agent 的模型
   const effectiveModel = modelOverride || subAgent.model;
-  // 拿到最终调用的model
-  const resolvedModel = effectiveModel ? resolveModelId(effectiveModel) : parentProvider.model;
-  // 获取系统信息
-  const env = detectEnvironment(workDir);
-  // 把model赋值为最终确定的model
-  env.model = resolvedModel;
-  // 如果子agent有提示词就用子agent的，没有的话，就根据当前系统信息，重新构建一个系统提示词
-  const systemPrompt = subAgent.systemPromptOverride ?? buildSystemPrompt(env);
-  // 子agent或者modelOverride有指定model的话，就重新创建一个，不然就沿用父级的client
-  const client: AnthropicClient | OpenAIClient = effectiveModel
-    ? createClient({ provider: parentProvider, systemPrompt: systemPrompt, model: resolvedModel })
-    : parentClient;
-
+  // 能力档位由当前 Provider 解析；未配置档位时回退到 Provider 默认模型。
+  const resolvedModel = resolveModelId(effectiveModel, parentProvider);
+  const maxTurns = subAgent.maxTurns ?? DEFAULT_SUBAGENT_MAX_TURNS;
+  if (!Number.isInteger(maxTurns) || maxTurns <= 0) {
+    throw new Error(`Invalid sub-agent maxTurns: ${maxTurns}`);
+  }
+  const systemPrompt = buildSubAgentSystemPrompt(subAgent, workDir, resolvedModel);
+  // 每个子 Agent 都使用独立 Client，避免父子系统提示词和并行请求互相污染。
+  const client: AnthropicClient | OpenAIClient = clientFactory({
+    provider: parentProvider,
+    model: resolvedModel,
+    systemPrompt,
+  });
   // 通过多层过滤构建子 Agent 工具注册表（对齐 Go 的 FilterToolsForAgent）
   const filterToolManager = filterToolsForAgent(
     parentToolManager,
@@ -75,7 +112,9 @@ export async function spawnSubAgent(
     toolManger: filterToolManager,
     permissionCheck: checker,
     messageManager: messageManager,
-    workDir
+    workDir,
+    abortSignal,
+    maxTurns,
   });
 
   let output = "";
@@ -99,9 +138,12 @@ export async function spawnSubAgent(
       case "loop_complete":
         return output || "[No output]";
       case "error":
-        return output
-          ? `${output}\n\n[Error: ${event.error.message}]`
-          : `Error: ${event.error.message}`;
+        throw new SubAgentRunError(
+          output
+            ? `${event.error.message}\n\nPartial output:\n${output}`
+            : event.error.message,
+          output,
+        );
     }
   }
   //最后返回Agent的的结果

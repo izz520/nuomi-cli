@@ -19,6 +19,6 @@ export const BUILTIN_AGENTS: SubAgent[] = [
             "Fast read-only search agent for locating code. Use it to find files by pattern, grep for symbols or keywords.",
         disallowedTools: ["EditFile", "WriteFile"],
         permissionMode: "plan",
-        model: "haiku",
+        model: "fast",
     },
 ];

@@ -31,6 +31,7 @@ interface IAgentConfig {
     recoveryManager?: RecoveryManager
     runtimeContextManager?: RuntimeContextManager
     hookManager?: HookManager
+    maxTurns?: number
     onPermissionRequest?: (
         toolName: string,
         args: Record<string, unknown>,
@@ -58,8 +59,9 @@ export class Agent {
     private recoveryManager: RecoveryManager
     private runtimeContextManager: RuntimeContextManager | undefined
     private hookManager: HookManager | undefined
+    private maxTurns: number | undefined
     private onPermissionRequest: IAgentConfig['onPermissionRequest']
-    constructor({ client, messageManager, workDir, abortSignal, permissionCheck, toolManger, toolResultCompactManger, contextWindow, recoveryManager, runtimeContextManager, hookManager, onPermissionRequest }: IAgentConfig) {
+    constructor({ client, messageManager, workDir, abortSignal, permissionCheck, toolManger, toolResultCompactManger, contextWindow, recoveryManager, runtimeContextManager, hookManager, maxTurns, onPermissionRequest }: IAgentConfig) {
         this.client = client
         this.messageManager = messageManager
         this.toolManger = toolManger
@@ -71,6 +73,7 @@ export class Agent {
         this.recoveryManager = recoveryManager ?? new RecoveryManager();
         this.runtimeContextManager = runtimeContextManager
         this.hookManager = hookManager
+        this.maxTurns = maxTurns
         this.onPermissionRequest = onPermissionRequest
 
     }
@@ -78,9 +81,18 @@ export class Agent {
     async *startLoop(): AsyncGenerator<AgentEvent> {
         // console.log("🚀 ~ Agent ~ startLoop ~ toolSchemas:", toolSchemas)
         let looping = true;
+        let turnsStarted = 0;
         await this.hookEvent("session_start");
         //开始循环Loop
         while (looping) {
+            if (this.maxTurns !== undefined && turnsStarted >= this.maxTurns) {
+                yield {
+                    type: "error",
+                    error: new Error(`Agent exceeded maxTurns: ${this.maxTurns}`),
+                };
+                return;
+            }
+            turnsStarted++;
             let toolSchemas = this.toolManger.getAllSchemas();
             //拿到指令+长期记忆的prompt
             const runtimeContext = this.runtimeContextManager?.buildMessage() || "";
