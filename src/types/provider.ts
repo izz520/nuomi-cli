@@ -27,3 +27,20 @@ export interface MCPServerConfig {
     headers?: Record<string, string>;
     env?: Record<string, string>;
 }
+
+export interface HookConfig {
+    id?: string;
+    event: string;
+    condition?: string;
+    action: {
+        type: string;
+        command?: string;
+        url?: string;
+        method?: string;
+        prompt?: string;
+    };
+    reject?: boolean;
+    once?: boolean;
+    async?: boolean;
+    on_error?: string;
+}

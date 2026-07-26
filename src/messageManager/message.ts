@@ -59,6 +59,12 @@ export class MessageManager {
     len(): number {
         return this.history.length;
     }
+    addSystemReminder(content: string): void {
+        this.history.push({
+            role: "user",
+            content: `<system-reminder>\n${content}\n</system-reminder>`,
+        });
+    }
     // 把消息记录替换成压缩后的消息记录
     replaceWithCompacted(summaryContent: string, keep: IMessage[]): void {
         this.history = [

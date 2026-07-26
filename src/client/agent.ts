@@ -17,6 +17,7 @@ import AnthropicClient from "./anthorpic.js";
 import createClient from "./create.js";
 import OpenAIClient from "./openai.js";
 import { ToolExecutManger } from "./tool-execut-manger.js";
+import { EventName, HookManager } from "../hooks/hooks.js";
 
 interface IAgentConfig {
     client: AnthropicClient | OpenAIClient,
@@ -29,6 +30,7 @@ interface IAgentConfig {
     contextWindow: number | undefined
     recoveryManager: RecoveryManager
     runtimeContextManager: RuntimeContextManager
+    hookManager: HookManager
     onPermissionRequest?: (
         toolName: string,
         args: Record<string, unknown>,
@@ -55,8 +57,9 @@ export class Agent {
     private autoCompactRetryCount = new AutoCompactRetryCount()
     private recoveryManager: RecoveryManager
     private runtimeContextManager: RuntimeContextManager
+    private hookManager: HookManager
     private onPermissionRequest: IAgentConfig['onPermissionRequest']
-    constructor({ client, messageManager, workDir, abortSignal, permissionCheck, toolManger, toolResultCompactManger, contextWindow, recoveryManager, runtimeContextManager, onPermissionRequest }: IAgentConfig) {
+    constructor({ client, messageManager, workDir, abortSignal, permissionCheck, toolManger, toolResultCompactManger, contextWindow, recoveryManager, runtimeContextManager, hookManager, onPermissionRequest }: IAgentConfig) {
         this.client = client
         this.messageManager = messageManager
         this.toolManger = toolManger
@@ -67,6 +70,7 @@ export class Agent {
         this.contextWindow = contextWindow ?? 200000
         this.recoveryManager = recoveryManager
         this.runtimeContextManager = runtimeContextManager
+        this.hookManager = hookManager
         this.onPermissionRequest = onPermissionRequest
 
     }
@@ -74,6 +78,7 @@ export class Agent {
     async *startLoop(): AsyncGenerator<AgentEvent> {
         // console.log("🚀 ~ Agent ~ startLoop ~ toolSchemas:", toolSchemas)
         let looping = true;
+        await this.hookEvent("session_start");
         //开始循环Loop
         while (looping) {
             let toolSchemas = this.toolManger.getAllSchemas();
@@ -97,6 +102,16 @@ export class Agent {
             let toolUses: ToolUseBlock[] = []
             //结束标识
             let stopReason = "end_turn"
+            // 加载Hooks
+            if (this.hookManager) {
+                // 如果有hook结果需要告诉Agent，则通过这个加入到消息记录中
+                for (const note of this.hookManager.drainNotifications()) {
+                    this.messageManager.addSystemReminder(note);
+                }
+            }
+
+            await this.hookEvent("turn_start");
+            await this.hookEvent("pre_send");
             //记录工具调用次数
             let consecutiveUnknown = 0;
             // ✨ 这里要开始压缩
@@ -386,5 +401,13 @@ export class Agent {
             isError: r.result.isError,
             elapsed: r.elapsed,
         });
+    }
+    // hook事件处理
+    private async hookEvent(event: EventName, message?: string): Promise<void> {
+        if (!this.hookManager) return;
+        const results = await this.hookManager.execute(event, { event, message });
+        for (const r of results) {
+            if (r.output) this.hookManager.recordNotification(r.output);
+        }
     }
 }

@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { load } from "js-yaml";
-import type { MCPServerConfig, ProviderConfig, ProviderProtocol, SandBoxConfig } from "./types/provider.js";
+import type { HookConfig, MCPServerConfig, ProviderConfig, ProviderProtocol, SandBoxConfig } from "./types/provider.js";
 
 export type AppConfig = {
     providers: ProviderConfig[];
     activeProviderName?: string;
     sandbox: SandBoxConfig
+    hooks: HookConfig[]
     mcp_servers: MCPServerConfig[]
 };
 
@@ -22,6 +23,7 @@ function parseConfigYaml(source: string): {
     activeProviderName?: string;
     providers: RawProviderConfig[];
     sandbox: SandBoxConfig
+    hooks: HookConfig[]
     mcp_servers: MCPServerConfig[]
 } {
     const parsed = load(source, { filename: configPath });
@@ -47,7 +49,8 @@ function parseConfigYaml(source: string): {
     const activeProvider = parsed.active_provider ?? parsed.provider;
     const activeProviderName = typeof activeProvider === "string" ? activeProvider : undefined;
     const sandbox: SandBoxConfig = parsed.sandbox ? parsed.sandbox as SandBoxConfig : { enabled: true, auto_allow: true, network_enabled: true } as SandBoxConfig
-    return { activeProviderName, providers, sandbox, mcp_servers };
+    const hooks: HookConfig[] = parsed.hooks as HookConfig[] ?? []
+    return { activeProviderName, providers, sandbox, mcp_servers, hooks };
 }
 
 function assertString(value: unknown, key: string, providerName: string): string {

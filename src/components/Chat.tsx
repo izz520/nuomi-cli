@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { MCPServerConfig, ProviderConfig, SandBoxConfig } from '../types/provider.js'
+import { HookConfig, MCPServerConfig, ProviderConfig, SandBoxConfig } from '../types/provider.js'
 import { Box, Text, useApp, useInput } from 'ink'
 import MessageList, { ChatMessage, MessagePhase } from './MessageList/index.js'
 import PromptInput from './PromptInput.js'
@@ -22,6 +22,7 @@ import { MemoryManager, MemoryScope } from '../memory/manager.js'
 import { SendMessageHistory } from '../history/send-message.js'
 import { CommandManager, createCommandManager, parse as parseCommand } from '../commands/commands.js'
 import { nextPermissionMode, PERMISSION_MODE_ORDER } from '../premisson/modes.js'
+import { HookManager } from '../hooks/hooks.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
     workDir: string
@@ -37,6 +38,8 @@ interface IChat {
     memoryManager: MemoryManager
     selectedProvider: ProviderConfig
     commandManager: CommandManager
+    hookManager: HookManager
+    hookError: Error | null
 }
 
 const FIRST_RESPONSE_TIMEOUT_MS = 60_000
@@ -179,7 +182,7 @@ export const messagesReducer = (messages: ChatMessage[], action: MessageAction):
 
 
 
-const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, toolManager, messageManager, toolResultCompactManger, recoveryManager, runtimeContextManager, memoryManager, selectedProvider, commandManager }: IChat) => {
+const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, toolManager, messageManager, toolResultCompactManger, recoveryManager, runtimeContextManager, memoryManager, selectedProvider, commandManager, hookManager, hookError }: IChat) => {
     // console.log("🚀 ~ Chat ~ instructions:", instructions)
     // console.log("🚀 ~ Chat ~ memReminder:", memReminder)
     const { exit } = useApp()
@@ -316,6 +319,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
             permissionCheck: checker,
             contextWindow: contextWindow,
             recoveryManager: recoveryManager,
+            hookManager: hookManager,
             runtimeContextManager,
             // 权限异步等待用户选择后返回结果
             onPermissionRequest: async (toolName, args, decision) => {
@@ -1093,6 +1097,14 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
         };
     }, [mcpServers, toolManager, runtimeContextManager]);
 
+    useEffect(() => {
+        if (hookError) {
+            dispatchMessages({
+                type: "append_system",
+                content: `Hook warning: ${hookError.message}`
+            })
+        }
+    }, [hookError])
     return (
         <Box flexDirection="column">
             <MessageList messages={messages} isWorking={isWorking} workingLabel={workingLabel} />

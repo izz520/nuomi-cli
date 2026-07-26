@@ -30,9 +30,11 @@ import { InstallSkillTool } from "./tools/install-skill-tool.js";
 import { Command, CommandManager, createCommandManager } from "./commands/commands.js";
 import { runInline } from "./skills/executor.js";
 import { Skill } from "openai/resources";
+import { HookManager, validateHooks } from "./hooks/hooks.js";
 
 const workDir = process.cwd()
 const config = loadConfig();
+console.log("🚀 ~ config:", config)
 export default function App() {
 
     // console.log("🚀 ~ App ~ config:", config)
@@ -46,7 +48,9 @@ export default function App() {
     const recoveryManagerRef = useRef<RecoveryManager | null>(null)
     const activeSkillsRef = useRef(new Map<string, string>());
     const skillManagerRef = useRef<SkillManager | null>(null)
+    const hookManagerRef = useRef<HookManager | null>(null)
     const cmdManagerRef = useRef(createCommandManager());
+    const hookError = useRef<Error | null>(null);
     const skillHostRef = useRef<SkillHost>({
         activateSkill: (name, body) => activeSkillsRef.current.set(name, body),
     });
@@ -98,6 +102,10 @@ export default function App() {
             const updatedPrompt = buildSystemPrompt(env, skillManager, workDir);
             client.setSystemPrompt(updatedPrompt);
         }));
+        // 做hooks配置的参数校验
+        const hookErr = validateHooks(config.hooks);
+        hookError.current = hookErr
+        hookManagerRef.current = new HookManager(config.hooks);
         const client = createClient({ provider: selectProvider, systemPrompt: systemPrompt })
         setLLMClient(client)
     }, [selectProvider, workDir])
@@ -159,6 +167,9 @@ export default function App() {
                 runtimeContextManager={runtimeContextManagerRef.current}
                 memoryManager={memManagerRef.current}
                 selectedProvider={selectProvider}
+                hookManager={hookManagerRef.current!}
+                hookError={hookError.current}
+
             />
         </Box>
     );
