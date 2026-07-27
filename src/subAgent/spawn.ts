@@ -10,6 +10,8 @@ import type { ProviderConfig } from "../types/provider.js";
 import { filterToolsForAgent } from "../tools/tool-filter.js";
 import AnthropicClient from "../client/anthorpic.js";
 import OpenAIClient from "../client/openai.js";
+import { buildMessageManager } from "../messageManager/buildMessage.js";
+import type { IMessage } from "../types/messsage.js";
 
 export const DEFAULT_SUBAGENT_MAX_TURNS = 20;
 
@@ -23,6 +25,8 @@ export type AgentEventSink = (event: {
 
 export interface SpawnSubAgentOptions {
   subAgent: SubAgent;
+  contextMode?: "fresh" | "fork";
+  parentMessages?: IMessage[];
   prompt: string;
   parentToolManager: ToolsManger;
   parentProvider: ProviderConfig;
@@ -60,32 +64,50 @@ export function buildSubAgentSystemPrompt(
 }
 
 export async function startSubAgent({
+  //子Agent的定义
   subAgent,
+  // 上下文模式
+  contextMode = "fresh",
+  // 父级消息管理器
+  parentMessages,
+  // 系统提示词
   prompt,
+  // 父级工具管理器
   parentToolManager,
+  // 父级Provider
   parentProvider,
+  // 当前工作目录
   workDir,
+  // 更新进度的函数
   onProgress,
+  // 更新strable事件流
   onEvent,
+  // model重写
   modelOverride,
+  // 取消
   abortSignal,
+  // 是否是后台执行
   background = false,
+  // 创建client的函数
   clientFactory = createClient,
 }: SpawnSubAgentOptions): Promise<string> {
+  // 如果取消了，则返回取消原因或者直接报错
   if (abortSignal?.aborted) {
     throw abortSignal.reason instanceof Error
       ? abortSignal.reason
       : new Error("Sub-agent run aborted");
   }
-
   // 确定模型：调用级 override > 定义级 model > 父 Agent 的模型
   const effectiveModel = modelOverride || subAgent.model;
   // 能力档位由当前 Provider 解析；未配置档位时回退到 Provider 默认模型。
   const resolvedModel = resolveModelId(effectiveModel, parentProvider);
+  // 最大循环调用次数
   const maxTurns = subAgent.maxTurns ?? DEFAULT_SUBAGENT_MAX_TURNS;
+  // 如果不是整数，或者小于0，则报错
   if (!Number.isInteger(maxTurns) || maxTurns <= 0) {
     throw new Error(`Invalid sub-agent maxTurns: ${maxTurns}`);
   }
+  // 构建新的系统提示词
   const systemPrompt = buildSubAgentSystemPrompt(subAgent, workDir, resolvedModel);
   // 每个子 Agent 都使用独立 Client，避免父子系统提示词和并行请求互相污染。
   const client: AnthropicClient | OpenAIClient = clientFactory({
@@ -104,8 +126,13 @@ export async function startSubAgent({
   const permMode = subAgent.permissionMode ?? "acceptEdits";
   // 新建一个checker
   const checker = new PermissionChecker(workDir, permMode);
-  // 新建一个消息管理器
-  const messageManager = new MessageManager();
+  if (contextMode === "fork" && !parentMessages) {
+    throw new Error("Fork sub-agent requires parent messages");
+  }
+  // fresh 使用全新上下文；fork 复制父 Agent 的消息历史。
+  const messageManager = contextMode === "fork"
+    ? buildMessageManager(parentMessages!)
+    : new MessageManager();
   // 把prompt添加为用户消息
   messageManager.addUserMessage(prompt);
   // 创建一个agnet

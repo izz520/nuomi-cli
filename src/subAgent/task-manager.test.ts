@@ -8,7 +8,7 @@ test("tracks progress and completes a background task", async () => {
   const result = new Promise<string>((resolve) => {
     release = resolve;
   });
-  const task = manager.start({
+  const task = manager.createTask({
     label: "explore: inspect files",
     background: true,
     run: async ({ onProgress }) => {
@@ -32,7 +32,7 @@ test("tracks progress and completes a background task", async () => {
 test("stops a task and does not let its runner overwrite cancelled state", async () => {
   const manager = new SubAgentTaskManager();
   let runnerSignal: AbortSignal | undefined;
-  const task = manager.start({
+  const task = manager.createTask({
     label: "long task",
     background: true,
     run: ({ signal }) => new Promise<string>((_resolve, reject) => {
@@ -53,7 +53,7 @@ test("stops a task and does not let its runner overwrite cancelled state", async
 test("a synchronous task follows its parent abort signal", async () => {
   const manager = new SubAgentTaskManager();
   const parent = new AbortController();
-  const task = manager.start({
+  const task = manager.createTask({
     label: "sync task",
     background: false,
     parentSignal: parent.signal,
@@ -71,7 +71,7 @@ test("a synchronous task follows its parent abort signal", async () => {
 test("remove only deletes terminal tasks", async () => {
   const manager = new SubAgentTaskManager();
   let release!: () => void;
-  const task = manager.start({
+  const task = manager.createTask({
     label: "task",
     background: true,
     run: () => new Promise<string>((resolve) => {

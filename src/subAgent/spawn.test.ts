@@ -8,7 +8,7 @@ import { ToolsManger } from "../tools/register.js";
 import {
   SubAgentRunError,
   buildSubAgentSystemPrompt,
-  spawnSubAgent,
+  startSubAgent,
 } from "./spawn.js";
 
 const provider: ProviderConfig = {
@@ -29,6 +29,8 @@ const usage = {
 class FakeClient {
   calls = 0;
   seenSignal?: AbortSignal;
+  seenMessages?: unknown;
+  seenTools?: unknown;
 
   constructor(
     private readonly events: () => AsyncGenerator<StreamEvent>,
@@ -40,11 +42,13 @@ class FakeClient {
   }
 
   async *sendMessageStream(
-    _messages: unknown,
-    _tools: unknown,
+    messages: unknown,
+    tools: unknown,
     options: StreamOptions = {},
   ): AsyncGenerator<StreamEvent> {
     this.calls++;
+    this.seenMessages = messages;
+    this.seenTools = tools;
     this.seenSignal = options.abortSignal;
     yield* this.events();
   }
@@ -84,7 +88,7 @@ test("uses a dedicated client and returns the sub-agent output", async () => {
   });
   let clientOptions: Record<string, unknown> | undefined;
 
-  const result = await spawnSubAgent({
+  const result = await startSubAgent({
     subAgent: {
       name: "general-purpose",
       description: "test",
@@ -104,6 +108,48 @@ test("uses a dedicated client and returns the sub-agent output", async () => {
   assert.equal(clientOptions?.model, "parent-model");
   assert.match(String(clientOptions?.systemPrompt), /Child role/);
   assert.equal(fake.seenSignal, controller.signal);
+});
+
+test("fork mode copies parent messages and still removes the Agent tool", async () => {
+  const fake = new FakeClient(async function* () {
+    yield { type: "text_delta", text: "fork-result" };
+    yield { type: "stream_end", stopReason: "end_turn", usage };
+  });
+  const tools = new ToolsManger();
+  for (const name of ["Agent", "ReadFile"]) {
+    tools.register({
+      name,
+      description: name,
+      category: "read",
+      schema: () => ({
+        name,
+        description: name,
+        input_schema: { type: "object", properties: {} },
+      }),
+      execute: async () => ({ output: "ok", isError: false }),
+    });
+  }
+
+  const result = await startSubAgent({
+    contextMode: "fork",
+    parentMessages: [{ role: "user", content: "Parent context" }],
+    subAgent: {
+      name: "explore",
+      description: "Explore with inherited context",
+      tools: ["*"],
+    },
+    prompt: "Continue the task",
+    parentToolManager: tools,
+    parentProvider: provider,
+    workDir: process.cwd(),
+    clientFactory: asClientFactory(fake),
+  });
+
+  assert.equal(result, "fork-result");
+  assert.match(JSON.stringify(fake.seenMessages), /Parent context/);
+  assert.match(JSON.stringify(fake.seenMessages), /Continue the task/);
+  assert.doesNotMatch(JSON.stringify(fake.seenTools), /Agent/);
+  assert.match(JSON.stringify(fake.seenTools), /ReadFile/);
 });
 
 test("enforces maxTurns and reports it as a sub-agent error", async () => {
@@ -130,7 +176,7 @@ test("enforces maxTurns and reports it as a sub-agent error", async () => {
   };
   tools.register(noop);
 
-  await assert.rejects(spawnSubAgent({
+  await assert.rejects(startSubAgent({
     subAgent: {
       name: "limited",
       description: "test",
@@ -156,7 +202,7 @@ test("does not start a sub-agent when already aborted", async () => {
     yield { type: "stream_end", stopReason: "end_turn", usage };
   });
 
-  await assert.rejects(spawnSubAgent({
+  await assert.rejects(startSubAgent({
     subAgent: { name: "test", description: "test" },
     prompt: "Do the task",
     parentToolManager: new ToolsManger(),

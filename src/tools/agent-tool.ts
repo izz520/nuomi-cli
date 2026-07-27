@@ -2,13 +2,12 @@ import type { Tool, ToolResult, ToolContext } from "../types/tools.js";
 import { strArg, boolArg } from "./utils.js";
 import type { SubAgent } from "../types/subAgent.js";
 import { loadSubAgents } from "../subAgent/loader.js";
-import type { ToolsManger } from "../tools/register.js";
 import type { MessageManager } from "../messageManager/message.js";
 import type { TeamManager, RunAgent } from "../teams/team.js";
+import type { IMessage } from "../types/messsage.js";
 
 // Fork 子 Agent 的前导标记——用于嵌套 fork 检测
 const FORK_BOILERPLATE_TAG = "<fork_boilerplate>";
-const FORK_QUERY_SOURCE = "agent:builtin:fork";
 
 // Fork 子 Agent 注入的系统指令
 const FORK_BOILERPLATE = `${FORK_BOILERPLATE_TAG}
@@ -28,49 +27,29 @@ export class AgentTool implements Tool {
   system = true;
 
   private subAgents: SubAgent[];
-  private toolManager: ToolsManger;
   private messageManager?: MessageManager;
-
-  // 标识当前 AgentTool 实例所处的派生上下文；
-  // 非空且等于 FORK_QUERY_SOURCE 时禁止再次 fork
-  querySource = "";
 
   /** 可选：团队管理器，启用 team_name 参数。 */
   private teamManager?: TeamManager;
   /** 可选：用于生成队友的 RunAgent 回调。 */
   private teamRunAgent?: RunAgent;
 
-  private stratAgentHandler: (request: SubAgentRunRequest) => Promise<string>;
-
-  private forkHandler?: (
-    prompt: string,
-    messageManager: MessageManager,
-    toolManager: ToolsManger,
-    modelOverride?: string,
-  ) => Promise<string>;
+  private startAgentHandler: (request: SubAgentRunRequest) => Promise<string>;
 
   constructor(
     // 当前工作目录
     workDir: string,
-    // 工具管理器
-    toolManager: ToolsManger,
     // 创建子Agent的回调函数
-    stratAgentHandler: (request: SubAgentRunRequest) => Promise<string>,
+    startAgentHandler: (request: SubAgentRunRequest) => Promise<string>,
     // 消息管理器
     messageManager?: MessageManager,
-    // fork的回调函数
-    forkHandler?: (prompt: string, messageManager: MessageManager, toolManager: ToolsManger, modelOverride?: string) => Promise<string>,
   ) {
     // 拿到所有的子Agent定义
     this.subAgents = loadSubAgents(workDir);
-    // 把当前工具管理器存起来
-    this.toolManager = toolManager;
     // 把创建后的回调函数存起来
-    this.stratAgentHandler = stratAgentHandler;
+    this.startAgentHandler = startAgentHandler;
     // 把当前消息管理器存起来
     this.messageManager = messageManager;
-    // 把fork模式的回调函数存起来
-    this.forkHandler = forkHandler;
   }
 
   /**
@@ -93,10 +72,22 @@ export class AgentTool implements Tool {
         properties: {
           description: { type: "string", description: "Short description of what the agent will do" },
           prompt: { type: "string", description: "The task for the agent to perform" },
+          context_mode: {
+            type: "string",
+            enum: ["fresh", "fork"],
+            default: "fresh",
+            description:
+              "Context strategy. Defaults to 'fresh'. " +
+              "'fresh' starts the selected subagent_type with no conversation history; " +
+              "'fork' starts the same selected role with the current conversation history. " +
+              "Fork must be selected explicitly.",
+          },
           subagent_type: {
             type: "string",
             enum: agentTypes,
-            description: "Agent type. Omit to fork current conversation context.",
+            description:
+              "Predefined agent role used with either context mode. " +
+              "The value must be one of the configured agent definitions.",
           },
           model: {
             type: "string",
@@ -120,11 +111,18 @@ export class AgentTool implements Tool {
   }
 
   private buildDescription(): string {
-    let desc = `Launch a sub-agent to handle a complex task. Each sub-agent runs independently with its own context. The sub-agent cannot see the current conversation.
+    let desc = `Launch a sub-agent to handle a complex task.
+
+Choose the context strategy explicitly with "context_mode":
+- "fresh": start the selected "subagent_type" with no conversation history.
+- "fork": start the selected "subagent_type" with the current conversation history.
+
+When "context_mode" is omitted it defaults to "fresh".
+"subagent_type" selects the configured role and is required for both context modes.
 
 This is ONE tool with multiple roles. Roles are NOT separate tools — you pick one by passing its name in the "subagent_type" parameter. Do not search for a tool named after a role; call THIS tool ("Agent") and set "subagent_type".
 
-Available roles for the "subagent_type" parameter:`;
+Available roles for "subagent_type":`;
 
     for (const def of this.subAgents) {
       desc += `\n- ${def.name}: ${def.description}`;
@@ -136,13 +134,15 @@ Example call shape:
 {
   "name": "Agent",
   "input": {
+    "context_mode": "fresh",
     "subagent_type": "<role from the list above>",
     "description": "Short task label",
     "prompt": "Detailed instructions — the sub-agent has zero prior context"
   }
 }
 
-Write a detailed prompt explaining what the sub-agent should do and why — it has no prior context.
+For context_mode="fresh", write a detailed prompt because the sub-agent has no prior conversation context.
+For context_mode="fork", the prompt may refer to the inherited conversation, but should still state the concrete task.
 When tasks are independent, launch multiple sub-agents in parallel by making multiple Agent tool calls in a single response.
 When run_in_background is true, Agent returns a task_id immediately. Use TaskOutput to read the result or TaskStop to cancel it.`;
     return desc;
@@ -159,6 +159,14 @@ When run_in_background is true, Agent returns a task_id immediately. Use TaskOut
     }
     // 拿到Agent的类型，即哪个子Agent
     const subagentType = strArg(args, "subagent_type");
+    // 上下文模式默认 fresh；fork 必须显式指定。
+    const contextMode = strArg(args, "context_mode") || "fresh";
+    if (contextMode !== "fresh" && contextMode !== "fork") {
+      return {
+        output: `Error: unknown context_mode '${contextMode}'. Available: fresh, fork`,
+        isError: true,
+      };
+    }
     // 拿到这个子Agent调用的模型
     const modelOverride = strArg(args, "model");
     // 拿到这个子Agent是同步任务还是异步任务
@@ -172,12 +180,14 @@ When run_in_background is true, Agent returns a task_id immediately. Use TaskOut
       return this.runAsTeammate(teamName, description, prompt);
     }
 
-    // Fork 路径：没有指定 subagent_type 时继承父对话上下文
+    // fresh 和 fork 都必须选择一个已配置的 Agent 角色。
     if (!subagentType) {
-      return this.runFork(prompt, description, modelOverride);
+      return {
+        output: `Error: subagent_type is required when context_mode is '${contextMode}'`,
+        isError: true,
+      };
     }
 
-    // 定义路径：按 subagent_type 查找 Agent 定义
     const subAgent = this.subAgents.find((d) => d.name === subagentType);
     if (!subAgent) {
       return {
@@ -186,23 +196,72 @@ When run_in_background is true, Agent returns a task_id immediately. Use TaskOut
       };
     }
 
-    try {
-      const output = await this.stratAgentHandler({
+    let runRequest: SubAgentRunRequest;
+    if (contextMode === "fork") {
+      if (!this.messageManager) {
+        return { output: "Error: fork requires parent conversation context", isError: true };
+      }
+      // 子 Agent 的工具过滤已移除 Agent 工具；扫描标记作为第二层防护，
+      // 避免未来工具策略变化后出现嵌套 fork。
+      for (const msg of this.messageManager.getMessages()) {
+        if (msg.content.includes(FORK_BOILERPLATE_TAG)) {
+          return {
+            output: "Error: cannot fork from a forked agent. Use context_mode='fresh' with subagent_type instead.",
+            isError: true,
+          };
+        }
+      }
+      const parentMessages = this.snapshotForkMessages();
+      runRequest = {
+        contextMode: "fork",
+        subAgent,
+        parentMessages,
+        description,
+        prompt: `${FORK_BOILERPLATE}\n\nYour task:\n${prompt}`,
+        background: background || !!subAgent.background,
+        modelOverride: modelOverride || undefined,
+        abortSignal: ctx?.abortSignal,
+      };
+    } else {
+      runRequest = {
+        contextMode: "fresh",
         subAgent,
         description,
         prompt,
         background: background || !!subAgent.background,
         modelOverride: modelOverride || undefined,
         abortSignal: ctx?.abortSignal,
-      });
-      // 返回给调用的Agent
+      };
+    }
+
+    try {
+      const output = await this.startAgentHandler(runRequest);
       return { output, isError: false };
     } catch (err) {
       return {
-        output: `Agent error: ${(err as Error).message}`,
+        output: `${contextMode === "fork" ? "Fork" : "Agent"} error: ${(err as Error).message}`,
         isError: true,
       };
     }
+  }
+
+  /**
+   * AgentTool 执行时，父历史的最后一条通常正是尚未返回结果的 Agent tool_use。
+   * Fork 只能复制已经闭合的历史，否则 Provider 会收到缺少 tool_result 的调用链。
+   */
+  private snapshotForkMessages(): IMessage[] {
+    const messages = this.messageManager?.getMessages() ?? [];
+    const last = messages.at(-1);
+    if (!last?.toolUses?.length) return messages;
+
+    const stableMessages = messages.slice(0, -1);
+    if (last.content.trim()) {
+      stableMessages.push({
+        role: "assistant",
+        content: last.content,
+      });
+    }
+    return stableMessages;
   }
 
   /**
@@ -242,63 +301,23 @@ When run_in_background is true, Agent returns a task_id immediately. Use TaskOut
     };
   }
 
-  /**
-   * Fork 模式：继承父对话上下文，在后台运行。
-   * 与定义模式不同，fork 子 Agent 能看到父对话的全部历史，
-   * 实现 prompt-cache prefix 的字节对齐以提高缓存命中率。
-   */
-  private async runFork(
-    prompt: string,
-    description: string,
-    modelOverride: string,
-  ): Promise<ToolResult> {
-    if (!this.messageManager || !this.forkHandler) {
-      return { output: "Error: fork requires parent conversation context", isError: true };
-    }
-
-    // 嵌套 fork 检测——两层防护：
-    // (1) 主检测：querySource 标记（即使对话被压缩也能检测）
-    // (2) 回退：扫描对话历史中的 fork 标记
-    if (this.querySource === FORK_QUERY_SOURCE) {
-      return {
-        output: "Error: cannot fork from a forked agent. Use subagent_type to spawn a definition-based agent instead.",
-        isError: true,
-      };
-    }
-    for (const msg of this.messageManager.getMessages()) {
-      if (msg.content.includes(FORK_BOILERPLATE_TAG)) {
-        return {
-          output: "Error: cannot fork from a forked agent. Use subagent_type to spawn a definition-based agent instead.",
-          isError: true,
-        };
-      }
-    }
-
-    try {
-      const output = await this.forkHandler(
-        `${FORK_BOILERPLATE}\n\nYour task:\n${prompt}`,
-        this.messageManager,
-        this.toolManager,
-        modelOverride,
-      );
-      return {
-        output: `Forked agent "${description}" launched in background. Results will arrive via task-notification.`,
-        isError: false,
-      };
-    } catch (err) {
-      return {
-        output: `Fork error: ${(err as Error).message}`,
-        isError: true,
-      };
-    }
-  }
 }
 
-export interface SubAgentRunRequest {
-  subAgent: SubAgent;
+interface SubAgentRunCommon {
   description: string;
   prompt: string;
   background: boolean;
   modelOverride?: string;
   abortSignal?: AbortSignal;
 }
+
+export type SubAgentRunRequest =
+  | SubAgentRunCommon & {
+      contextMode: "fresh";
+      subAgent: SubAgent;
+    }
+  | SubAgentRunCommon & {
+      contextMode: "fork";
+      subAgent: SubAgent;
+      parentMessages: IMessage[];
+    };

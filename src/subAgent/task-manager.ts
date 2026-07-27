@@ -30,7 +30,7 @@ export interface StartSubAgentTaskOptions {
   //是否跟随父请求取消
   parentSignal?: AbortSignal;
   //真正执行子 Agent的异步函数
-  run: (context: SubAgentTaskContext) => Promise<string>;
+  runTask: (context: SubAgentTaskContext) => Promise<string>;
 }
 
 interface TaskRecord {
@@ -98,7 +98,7 @@ export class SubAgentTaskManager {
     if (record.snapshot.status === "running") {
       //启动任务
       void Promise.resolve()
-        .then(() => options.run({
+        .then(() => options.runTask({
           signal: controller.signal,
           onProgress: (progress) => this.updateProgress(id, progress),
         }))
@@ -131,16 +131,19 @@ export class SubAgentTaskManager {
   }
 
   async wait(id: string, timeoutMs?: number): Promise<SubAgentTaskSnapshot | undefined> {
+    // 拿到record
     const record = this.records.get(id);
     if (!record) return undefined;
     if (record.snapshot.status !== "running") return this.copy(record.snapshot);
     if (timeoutMs === undefined) return record.completion.then((task) => this.copy(task));
-
+    // 返回一个异步的promise
     return new Promise<SubAgentTaskSnapshot>((resolve) => {
+      // 超时的话，就返回当前快照信息
       const timer = setTimeout(
         () => resolve(this.copy(record.snapshot)),
         Math.max(0, timeoutMs),
       );
+      //等待completion完成
       void record.completion.then((task) => {
         clearTimeout(timer);
         resolve(this.copy(task));
@@ -188,23 +191,31 @@ export class SubAgentTaskManager {
     this.finish(record.snapshot.id, "cancelled", { error: reason });
   }
 
+  // 任务完成
   private finish(
     id: string,
     status: Exclude<SubAgentTaskStatus, "running">,
     result: { output?: string; error?: string },
   ): void {
+    // 拿到这个次的任务
     const record = this.records.get(id);
+    // 如果任务不存在或者任务的状态不是running，则返回
     if (!record || record.snapshot.status !== "running") return;
+    // 更新快照
     record.snapshot = {
       ...record.snapshot,
       ...result,
       status,
       finishedAt: Date.now(),
     };
+    // 
     record.detachParentAbort?.();
     record.detachParentAbort = undefined;
+    //拿到新的快照对象
     const snapshot = this.copy(record.snapshot);
+    // 调用任务的resolve
     record.resolveCompletion(snapshot);
+    // 更新UI
     this.emit();
   }
 

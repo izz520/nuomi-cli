@@ -5,7 +5,7 @@ import { TaskOutputTool, TaskStopTool } from "./subagent-task-tools.js";
 
 test("TaskOutput returns and clears a completed result", async () => {
   const manager = new SubAgentTaskManager();
-  const task = manager.start({
+  const task = manager.createTask({
     label: "background task",
     background: true,
     run: async () => "task result",
@@ -24,7 +24,7 @@ test("TaskOutput returns and clears a completed result", async () => {
 test("TaskOutput can report a running task without clearing it", async () => {
   const manager = new SubAgentTaskManager();
   let release!: () => void;
-  const task = manager.start({
+  const task = manager.createTask({
     label: "background task",
     background: true,
     run: () => new Promise<string>((resolve) => {
@@ -46,7 +46,7 @@ test("TaskOutput can report a running task without clearing it", async () => {
 
 test("TaskOutput block waits for completion", async () => {
   const manager = new SubAgentTaskManager();
-  const task = manager.start({
+  const task = manager.createTask({
     label: "background task",
     background: true,
     run: async () => "done",
@@ -66,7 +66,7 @@ test("TaskOutput block waits for completion", async () => {
 
 test("TaskStop cancels a running task", async () => {
   const manager = new SubAgentTaskManager();
-  const task = manager.start({
+  const task = manager.createTask({
     label: "background task",
     background: true,
     run: ({ signal }) => new Promise<string>((_resolve, reject) => {

@@ -124,26 +124,22 @@ export default function App() {
         hookManagerRef.current = new HookManager(config.hooks);
         // 注册Agent的工具
         toolManagerRef.current?.register(
-            new AgentTool(workDir, toolManagerRef.current, startSubAgenthandle)
+            new AgentTool(workDir, startSubAgenthandle, messageManagerRef.current!)
         );
     }, [selectProvider, workDir])
 
 
     // 执行subAgent的函数
     const startSubAgenthandle = async (request: SubAgentRunRequest) => {
-        //从请求中提取出参数
         const {
-            //要启动的子 Agent 配置
-            subAgent,
             description,
-            //交给子 Agent 的任务
             prompt,
-            //是否后台执行
             background,
             modelOverride,
-            //主请求的取消信号
             abortSignal,
         } = request;
+        // fresh/fork 都使用 subagent_type 对应的文件配置，仅上下文来源不同。
+        const subAgent = request.subAgent;
         // 调用子Agent任务管理器的start函数创建任务
         const task = subAgentTaskManagerRef.current!.createTask({
             label: `${subAgent.name}: ${description}`,
@@ -151,8 +147,12 @@ export default function App() {
             // 后台任务独立于当前主请求，只能通过 TaskStop 主动停止。
             parentSignal: background ? undefined : abortSignal,
             //真正启动子 Agent
-            run: ({ signal, onProgress }) => startSubAgent({
+            runTask: ({ signal, onProgress }) => startSubAgent({
                 subAgent,
+                contextMode: request.contextMode,
+                parentMessages: request.contextMode === "fork"
+                    ? request.parentMessages
+                    : undefined,
                 prompt,
                 parentToolManager: toolManagerRef.current!,
                 parentProvider: selectProvider,
