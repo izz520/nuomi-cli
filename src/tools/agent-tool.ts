@@ -40,7 +40,7 @@ export class AgentTool implements Tool {
   /** 可选：用于生成队友的 RunAgent 回调。 */
   private teamRunAgent?: RunAgent;
 
-  private spawnHandler: (request: SubAgentRunRequest) => Promise<string>;
+  private stratAgentHandler: (request: SubAgentRunRequest) => Promise<string>;
 
   private forkHandler?: (
     prompt: string,
@@ -55,7 +55,7 @@ export class AgentTool implements Tool {
     // 工具管理器
     toolManager: ToolsManger,
     // 创建子Agent的回调函数
-    spawnHandler: (request: SubAgentRunRequest) => Promise<string>,
+    stratAgentHandler: (request: SubAgentRunRequest) => Promise<string>,
     // 消息管理器
     messageManager?: MessageManager,
     // fork的回调函数
@@ -66,7 +66,7 @@ export class AgentTool implements Tool {
     // 把当前工具管理器存起来
     this.toolManager = toolManager;
     // 把创建后的回调函数存起来
-    this.spawnHandler = spawnHandler;
+    this.stratAgentHandler = stratAgentHandler;
     // 把当前消息管理器存起来
     this.messageManager = messageManager;
     // 把fork模式的回调函数存起来
@@ -83,6 +83,7 @@ export class AgentTool implements Tool {
   }
   // 工具的信息
   schema(): Record<string, unknown> {
+    //拿到所有Agent的名字
     const agentTypes = this.subAgents.map((d) => d.name);
     return {
       name: this.name,
@@ -142,20 +143,27 @@ Example call shape:
 }
 
 Write a detailed prompt explaining what the sub-agent should do and why — it has no prior context.
-When tasks are independent, launch multiple sub-agents in parallel by making multiple Agent tool calls in a single response.`;
+When tasks are independent, launch multiple sub-agents in parallel by making multiple Agent tool calls in a single response.
+When run_in_background is true, Agent returns a task_id immediately. Use TaskOutput to read the result or TaskStop to cancel it.`;
     return desc;
   }
 
   async execute(args: Record<string, unknown>, ctx?: ToolContext): Promise<ToolResult> {
+    //拿到子Agent的秒速
     const description = strArg(args, "description");
+    // 拿到子Agent的prompt
     const prompt = strArg(args, "prompt");
+    // 如果描述或者prompt不存在，则直接返回错误结果给Agent
     if (!description || !prompt) {
       return { output: "Error: description and prompt are required", isError: true };
     }
-
+    // 拿到Agent的类型，即哪个子Agent
     const subagentType = strArg(args, "subagent_type");
+    // 拿到这个子Agent调用的模型
     const modelOverride = strArg(args, "model");
+    // 拿到这个子Agent是同步任务还是异步任务
     const background = boolArg(args, "run_in_background");
+    // 拿到Team的Name
     const teamName = strArg(args, "team_name");
 
     // Team-member 路径：team_name 优先于 fork/subagent，将 agent 作为
@@ -179,7 +187,7 @@ When tasks are independent, launch multiple sub-agents in parallel by making mul
     }
 
     try {
-      const output = await this.spawnHandler({
+      const output = await this.stratAgentHandler({
         subAgent,
         description,
         prompt,

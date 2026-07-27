@@ -31,6 +31,7 @@ export interface SpawnSubAgentOptions {
   onEvent?: AgentEventSink;
   modelOverride?: string;
   abortSignal?: AbortSignal;
+  background?: boolean;
   clientFactory?: typeof createClient;
 }
 
@@ -58,7 +59,7 @@ export function buildSubAgentSystemPrompt(
     : basePrompt;
 }
 
-export async function spawnSubAgent({
+export async function startSubAgent({
   subAgent,
   prompt,
   parentToolManager,
@@ -68,6 +69,7 @@ export async function spawnSubAgent({
   onEvent,
   modelOverride,
   abortSignal,
+  background = false,
   clientFactory = createClient,
 }: SpawnSubAgentOptions): Promise<string> {
   if (abortSignal?.aborted) {
@@ -96,7 +98,7 @@ export async function spawnSubAgent({
     parentToolManager,
     subAgent.tools,
     subAgent.disallowedTools,
-    false, // isAsync — spawnSubAgent 目前是同步路径
+    background,
   );
   //如果子agent有独立的权限，则按独立的来，不然就是允许编辑的权限
   const permMode = subAgent.permissionMode ?? "acceptEdits";

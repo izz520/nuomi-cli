@@ -23,6 +23,8 @@ import { SendMessageHistory } from '../history/send-message.js'
 import { CommandManager, createCommandManager, parse as parseCommand } from '../commands/commands.js'
 import { nextPermissionMode, PERMISSION_MODE_ORDER } from '../premisson/modes.js'
 import { HookManager } from '../hooks/hooks.js'
+import type { SubAgentTaskSnapshot } from '../subAgent/task-manager.js'
+import SubAgentStatusList from './SubAgentStatusList.js'
 interface IChat {
     llmClient: AnthropicClient | OpenAIClient | undefined
     workDir: string
@@ -40,6 +42,7 @@ interface IChat {
     commandManager: CommandManager
     hookManager: HookManager
     hookError: Error | null
+    subagents: SubAgentTaskSnapshot[]
 }
 
 const FIRST_RESPONSE_TIMEOUT_MS = 60_000
@@ -182,7 +185,7 @@ export const messagesReducer = (messages: ChatMessage[], action: MessageAction):
 
 
 
-const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, toolManager, messageManager, toolResultCompactManger, recoveryManager, runtimeContextManager, memoryManager, selectedProvider, commandManager, hookManager, hookError }: IChat) => {
+const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, toolManager, messageManager, toolResultCompactManger, recoveryManager, runtimeContextManager, memoryManager, selectedProvider, commandManager, hookManager, hookError, subagents }: IChat) => {
     // console.log("🚀 ~ Chat ~ instructions:", instructions)
     // console.log("🚀 ~ Chat ~ memReminder:", memReminder)
     const { exit } = useApp()
@@ -1108,6 +1111,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
     return (
         <Box flexDirection="column">
             <MessageList messages={messages} isWorking={isWorking} workingLabel={workingLabel} />
+            <SubAgentStatusList tasks={subagents} />
             {permissionRequest && <PermissionDialog toolName={permissionRequest.toolName} argsSummary={permissionRequest.argsSummary} reason={permissionRequest.reason} onComplete={handleSubmitAsk} />}
             <PromptInput
                 commands={commandManager.listCommands()}

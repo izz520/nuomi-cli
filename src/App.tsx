@@ -31,8 +31,13 @@ import { Command, CommandManager, createCommandManager } from "./commands/comman
 import { runInline } from "./skills/executor.js";
 import { Skill } from "openai/resources";
 import { HookManager, validateHooks } from "./hooks/hooks.js";
-import { AgentTool } from "./tools/agent-tool.js";
-import { spawnSubAgent } from "./subAgent/spawn.js";
+import { AgentTool, SubAgentRunRequest } from "./tools/agent-tool.js";
+import { startSubAgent } from "./subAgent/spawn.js";
+import {
+    SubAgentTaskManager,
+    type SubAgentTaskSnapshot,
+} from "./subAgent/task-manager.js";
+import { TaskOutputTool, TaskStopTool } from "./tools/subagent-task-tools.js";
 
 const workDir = process.cwd()
 const config = loadConfig();
@@ -53,10 +58,9 @@ export default function App() {
     const hookManagerRef = useRef<HookManager | null>(null)
     const cmdManagerRef = useRef(createCommandManager());
     const hookError = useRef<Error | null>(null);
-    const subagentIdRef = useRef(0);
-    const [subagents, setSubagents] = useState<
-        { id: number; label: string; turn: number; lastTool?: string }[]
-    >([]);
+    const subAgentTaskManagerRef = useRef<SubAgentTaskManager | null>(null);
+    const notifiedTaskIdsRef = useRef(new Set<string>());
+    const [subagents, setSubagents] = useState<SubAgentTaskSnapshot[]>([]);
     const skillHostRef = useRef<SkillHost>({
         activateSkill: (name, body) => activeSkillsRef.current.set(name, body),
     });
@@ -70,10 +74,14 @@ export default function App() {
     if (runtimeContextManagerRef.current === null) {
         runtimeContextManagerRef.current = new RuntimeContextManager(workDir, memManagerRef.current);
     }
+    if (subAgentTaskManagerRef.current === null) {
+        subAgentTaskManagerRef.current = new SubAgentTaskManager();
+    }
     if (toolManagerRef.current === null) {
         toolManagerRef.current = createToolManager(
             memManagerRef.current,
             runtimeContextManagerRef.current,
+            subAgentTaskManagerRef.current,
         );
     }
     if (toolResultCompactMangerRef.current === null) {
@@ -116,33 +124,68 @@ export default function App() {
         hookManagerRef.current = new HookManager(config.hooks);
         // 注册Agent的工具
         toolManagerRef.current?.register(
-            new AgentTool(workDir, toolManagerRef.current, async (request) => {
-                const { subAgent, prompt, modelOverride, abortSignal } = request;
-                //拿到本次创建的subAgent的id
-                const id = ++subagentIdRef.current;
-                // 把本次的subagent存储起来
-                setSubagents((prev) => [...prev, { id, label: subAgent.name, turn: 0 }]);
-                // 更新sub agent的动态
-                const onProgress = (p: { turn?: number; lastTool?: string }) =>
-                    setSubagents((prev) => prev.map((s) => (s.id === id ? { ...s, ...p } : s)));
-                try {
-                    return await spawnSubAgent({
-                        subAgent,
-                        prompt,
-                        parentToolManager: toolManagerRef.current!,
-                        parentProvider: selectProvider,
-                        workDir,
-                        onProgress,
-                        modelOverride,
-                        abortSignal,
-                    });
-                } finally {
-                    //子Agent调用结束之后，清楚记录 
-                    setSubagents((prev) => prev.filter((s) => s.id !== id));
-                }
-            })
+            new AgentTool(workDir, toolManagerRef.current, startSubAgenthandle)
         );
     }, [selectProvider, workDir])
+
+
+    // 执行subAgent的函数
+    const startSubAgenthandle = async (request: SubAgentRunRequest) => {
+        //从请求中提取出参数
+        const {
+            //要启动的子 Agent 配置
+            subAgent,
+            description,
+            //交给子 Agent 的任务
+            prompt,
+            //是否后台执行
+            background,
+            modelOverride,
+            //主请求的取消信号
+            abortSignal,
+        } = request;
+        // 调用子Agent任务管理器的start函数创建任务
+        const task = subAgentTaskManagerRef.current!.createTask({
+            label: `${subAgent.name}: ${description}`,
+            background,
+            // 后台任务独立于当前主请求，只能通过 TaskStop 主动停止。
+            parentSignal: background ? undefined : abortSignal,
+            //真正启动子 Agent
+            run: ({ signal, onProgress }) => startSubAgent({
+                subAgent,
+                prompt,
+                parentToolManager: toolManagerRef.current!,
+                parentProvider: selectProvider,
+                workDir,
+                onProgress,
+                modelOverride,
+                abortSignal: signal,
+                background,
+            }),
+        });
+        // 异步Agent的话，直接先返回一个信息给Agent
+        if (background) {
+            return (
+                `Background sub-agent started. task_id: ${task.id}. ` +
+                "Use TaskOutput to read the result or TaskStop to cancel it."
+            );
+        }
+        // 同步任务
+        try {
+            //等待子Agent任务管理器完成task.id的任务
+            const completed = await subAgentTaskManagerRef.current!.wait(task.id);
+            if (!completed) throw new Error(`Sub-agent task '${task.id}' disappeared`);
+            //如果任务状态是completed，则返回output
+            if (completed.status === "completed") {
+                return completed.output || "[No output]";
+            }
+            // 不然就报错
+            throw new Error(completed.error || `Sub-agent task ${completed.status}`);
+        } finally {
+            // 最后子Agent任务管理器移除当前任务
+            subAgentTaskManagerRef.current!.remove(task.id);
+        }
+    }
 
     // 写入skill到cmd里面
     function writeSkillToCommand(
@@ -183,6 +226,28 @@ export default function App() {
         initClient()
     }, [selectProvider])
 
+    useEffect(() => {
+        return subAgentTaskManagerRef.current!.subscribe((tasks) => {
+            setSubagents(tasks);
+            for (const task of tasks) {
+                if (
+                    !task.background
+                    || task.status === "running"
+                    || notifiedTaskIdsRef.current.has(task.id)
+                ) {
+                    continue;
+                }
+                notifiedTaskIdsRef.current.add(task.id);
+                messageManagerRef.current?.addSystemReminder(
+                    `<task-notification task_id="${task.id}" status="${task.status}">\n` +
+                    `Background sub-agent "${task.label}" is ${task.status}. ` +
+                    `Call TaskOutput with task_id "${task.id}" to read its result.\n` +
+                    "</task-notification>",
+                );
+            }
+        });
+    }, []);
+
     return (
         <Box flexDirection="column">
             <PlatformHeader provider={selectProvider} />
@@ -203,6 +268,7 @@ export default function App() {
                 selectedProvider={selectProvider}
                 hookManager={hookManagerRef.current!}
                 hookError={hookError.current}
+                subagents={subagents}
 
             />
         </Box>
@@ -212,17 +278,33 @@ export default function App() {
 const createToolManager = (
     memoryManager: MemoryManager,
     runtimeContextManager: RuntimeContextManager,
+    subAgentTaskManager: SubAgentTaskManager,
 ): ToolsManger => {
+    // 创建工具管理器
     const manager = new ToolsManger();
+    //添加常规读工具
     manager.register(new ReadFile());
+    //添加常规写工具
     manager.register(new WriteFileTool());
+    //添加常规编辑工具
     manager.register(new EditFileTool());
+    //添加常规工具
     manager.register(new GlobTool());
+    //添加常规工具
     manager.register(new GrepTool());
+    //添加常规工具
     manager.register(new BashTool());
+    //添加MCP搜索工具
     manager.register(new ToolSearchTool(manager));
+    //添加缓存工具
     manager.register(new ReadMemoryTool(memoryManager));
+    //添加写入缓存工具
     manager.register(new WriteMemoryTool(memoryManager, () => runtimeContextManager.invalidate()));
+    //添加编辑缓存工具
     manager.register(new EditMemoryTool(memoryManager, () => runtimeContextManager.invalidate()));
+    // 添加写入子Agent任务工具
+    manager.register(new TaskOutputTool(subAgentTaskManager));
+    //添加写入子Agent取消任务工具
+    manager.register(new TaskStopTool(subAgentTaskManager));
     return manager;
 };
