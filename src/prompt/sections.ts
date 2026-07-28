@@ -158,6 +158,11 @@ export function usingToolsSection(): Section {
       "把多个 Agent 工具调用放在同一条消息里。" +
       "子 Agent 用自己独立的上下文运行——它看不到当前对话内容，" +
       "写一个详细 prompt 说明它要做什么。\n" +
+      "   只要主 Agent 还有不依赖子 Agent 结果的工作可继续，" +
+      "调用 Agent 时默认显式设置 run_in_background: true，" +
+      "并在需要结果时用 TaskOutput 获取。" +
+      "仅当下一步立即依赖结果、任务很短，或可能与主 Agent 并发修改同一文件时使用前台调用。" +
+      "多个独立的后台 Agent 应在同一条消息中并行启动。\n" +
       " - 当用户要求多个 Agent 协作、组建团队或需要 Agent 间通信时，" +
       "使用 TeamCreate 创建团队，然后用 Agent 工具的 team_name 参数生成队员。" +
       "队员是长期运行的，通过 SendMessage 通信，" +

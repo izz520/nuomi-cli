@@ -22,6 +22,61 @@ test("permission checks use a specialized tool's resolved path", () => {
   assert.match(decision.reason, /outside allowed directories/);
 });
 
+test("allow always persists an exact long file path across checker instances", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "nuomi-permission-project-"));
+  const target = join(
+    workDir,
+    "a-very-long-directory-name",
+    "another-long-directory-name",
+    "nested",
+    "target-file.ts",
+  );
+  const args = { file_path: target };
+
+  const firstChecker = new PermissionChecker(workDir, "default");
+  assert.equal(firstChecker.check("EditFile", "write", args).effect, "ask");
+  firstChecker.allowAlways("EditFile", args);
+
+  const nextChecker = new PermissionChecker(workDir, "default");
+  assert.equal(nextChecker.check("EditFile", "write", args).effect, "allow");
+});
+
+test("allow always normalizes relative and absolute paths to the same file", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "nuomi-permission-project-"));
+  const relativePath = join("src", "target.ts");
+  const checker = new PermissionChecker(workDir, "default");
+
+  checker.allowAlways("WriteFile", { file_path: relativePath });
+
+  const decision = checker.check("WriteFile", "write", {
+    file_path: join(workDir, relativePath),
+  });
+  assert.equal(decision.effect, "allow");
+});
+
+test("allow always applies to an approved path outside the project", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "nuomi-permission-project-"));
+  const outside = mkdtempSync(join(tmpdir(), "nuomi-permission-outside-"));
+  const target = join(outside, "target.ts");
+  const args = { file_path: target };
+  const checker = new PermissionChecker(workDir, "default");
+
+  assert.equal(checker.check("EditFile", "write", args).effect, "ask");
+  checker.allowAlways("EditFile", args);
+
+  assert.equal(checker.check("EditFile", "write", args).effect, "allow");
+});
+
+test("persisted rules cannot override sensitive write denials", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "nuomi-permission-project-"));
+  const args = { file_path: join(workDir, "config.yaml") };
+  const checker = new PermissionChecker(workDir, "default");
+
+  checker.allowAlways("WriteFile", args);
+
+  assert.equal(checker.check("WriteFile", "write", args).effect, "deny");
+});
+
 test("permission checks deny a specialized path that cannot be resolved", () => {
   const workDir = mkdtempSync(join(tmpdir(), "nuomi-permission-project-"));
   const checker = new PermissionChecker(workDir, "default", () => {

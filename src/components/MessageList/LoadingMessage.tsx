@@ -3,7 +3,12 @@ import React, { memo, useEffect, useRef, useState } from "react";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-const LoadingMessage = ({ label = "Working" }: { label?: string }) => {
+interface LoadingMessageProps {
+    label?: string;
+    marginBottom?: number;
+}
+
+const LoadingMessage = ({ label = "Working", marginBottom = 1 }: LoadingMessageProps) => {
     const startedAtRef = useRef(Date.now());
     const [frame, setFrame] = useState(0);
 
@@ -18,7 +23,7 @@ const LoadingMessage = ({ label = "Working" }: { label?: string }) => {
     const elapsedSeconds = Math.floor((Date.now() - startedAtRef.current) / 1000);
 
     return (
-        <Box flexDirection="row" flexShrink={1} marginBottom={1}>
+        <Box flexDirection="row" flexShrink={1} marginBottom={marginBottom}>
             <Box width={2} flexShrink={0}>
                 <Text color="cyan">{SPINNER_FRAMES[frame]}</Text>
             </Box>

@@ -97,6 +97,19 @@ export const summarizeToolError = (value: string, max = 140): string => {
     return truncate(diagnostic ?? fallback, max);
 };
 
+const toolStatusStyle = (status: ToolMessageStatus) => {
+    switch (status) {
+        case "success":
+            return { icon: symbols.success, color: "green" as const };
+        case "error":
+            return { icon: symbols.error, color: "red" as const };
+        case "denied":
+            return { icon: symbols.denied, color: "yellow" as const };
+        default:
+            return { icon: symbols.tool, color: "cyan" as const };
+    }
+};
+
 const ToolGroupMessage = ({ message }: { message: ChatMessage }) => {
     const group = message.toolGroup;
     if (!group) return <Text>{message.content}</Text>;
@@ -108,15 +121,15 @@ const ToolGroupMessage = ({ message }: { message: ChatMessage }) => {
         ? Math.max(...group.tools.map((tool) => tool.elapsed ?? 0))
         : group.tools.reduce((total, tool) => total + (tool.elapsed ?? 0), 0);
     const elapsed = formatElapsed(elapsedSeconds);
-    const resultIcon = failedTools.length === 0
-        ? symbols.success
-        : denied
-            ? symbols.denied
-            : symbols.error;
-    const resultColor = failedTools.length === 0 ? "green" : denied ? "yellow" : "red";
-    const errorDetail = failedTools.length > 0
-        ? summarizeToolError(failedTools[0].output ?? "")
-        : "";
+    const resultIcon = running
+        ? symbols.tool
+        : failedTools.length === 0
+            ? symbols.success
+            : denied
+                ? symbols.denied
+                : symbols.error;
+    const resultColor = running ? "cyan" : failedTools.length === 0 ? "green" : denied ? "yellow" : "red";
+    const summary = running ? group.title : group.resultLabel;
 
     return (
         <Box flexDirection="column">
@@ -124,26 +137,50 @@ const ToolGroupMessage = ({ message }: { message: ChatMessage }) => {
                 <Box width={2} flexShrink={0}>
                     <Text color={resultColor}>{resultIcon}</Text>
                 </Box>
-                <Text dimColor={failedTools.length === 0}>{group.title}</Text>
+                <Text dimColor={running || failedTools.length === 0}>{summary}</Text>
+                {group.concurrent && group.tools.length > 1 && (
+                    <Text dimColor>{` · ${group.tools.length} parallel`}</Text>
+                )}
                 {elapsed && <Text dimColor>{` · ${elapsed}`}</Text>}
             </Box>
-            {!running && errorDetail && (
-                <Box paddingLeft={2}>
-                    <Text color={denied ? "yellow" : "red"} dimColor>{errorDetail}</Text>
-                </Box>
-            )}
+            {group.tools.map((tool) => {
+                const style = toolStatusStyle(tool.status);
+                const detail = tool.status === "error" || tool.status === "denied"
+                    ? summarizeToolError(tool.output ?? "")
+                    : "";
+
+                return (
+                    <Box key={tool.toolId} flexDirection="column" paddingLeft={2}>
+                        <Box flexDirection="row" flexShrink={1}>
+                            <Box width={2} flexShrink={0}>
+                                <Text color={style.color}>{style.icon}</Text>
+                            </Box>
+                            <Text dimColor>{tool.label}</Text>
+                            {tool.elapsed !== undefined && (
+                                <Text dimColor>{` · ${formatElapsed(tool.elapsed)}`}</Text>
+                            )}
+                        </Box>
+                        {detail && (
+                            <Box paddingLeft={2}>
+                                <Text color={tool.status === "denied" ? "yellow" : "red"} dimColor>
+                                    {detail}
+                                </Text>
+                            </Box>
+                        )}
+                    </Box>
+                );
+            })}
         </Box>
     );
 };
 
 const SystemMessage = ({ content }: { content: string }) => (
     <Box flexDirection="row" flexShrink={1} flexGrow={1} width="100%">
-        <Box width={9} flexShrink={0}>
-            <Text color="cyan">{symbols.system} </Text>
-            <Text color="cyan" bold>System</Text>
+        <Box width={2} flexShrink={0}>
+            <Text color="cyan">{symbols.system}</Text>
         </Box>
         <Box flexShrink={1} flexGrow={1}>
-            <Text>{content}</Text>
+            <Text dimColor>{content}</Text>
         </Box>
     </Box>
 );
@@ -155,15 +192,6 @@ const MessageList = ({ messages, isWorking, workingLabel }: MessageProps) => {
         <>
             <Box flexDirection="column" marginBottom={1}>
                 {messages.map((message, index) => {
-                    // The shared loading row represents the active step. Once a
-                    // step finishes, render its compact result in the trace.
-                    if (
-                        message.phase === "tool_call"
-                        && message.toolGroup?.tools.some((tool) => tool.status === "running")
-                    ) {
-                        return null;
-                    }
-
                     const content = message.content.replace(/^\r?\n/, "");
                     const renderedContent = message.phase === "tool_call"
                         ? content
@@ -184,8 +212,9 @@ const MessageList = ({ messages, isWorking, workingLabel }: MessageProps) => {
                             flexDirection="column"
                             alignItems="flex-start"
                             width="100%"
-                            // marginBottom={message.role === "assistant" ? 1 : 0}
-                            marginTop={1}
+                            marginTop={message.role === "user" ? 1 : 0}
+                            marginBottom={message.role === "user" ? 1 : 0}
+                            paddingLeft={message.role === "user" ? 1 : 0}
                             backgroundColor={message.role === "user" ? "gray" : undefined}
                         >
                             {message.role === "system" ? (
@@ -195,7 +224,14 @@ const MessageList = ({ messages, isWorking, workingLabel }: MessageProps) => {
                             ) : (
                                 <Box flexDirection="row" flexShrink={1} flexGrow={1}>
                                     <Box width={2} flexShrink={0}>
-                                        <Text color={message.phase === "error" ? 'red' : undefined} dimColor={message.phase === "thinking"}>
+                                        <Text
+                                            color={message.phase === "error"
+                                                ? "red"
+                                                : message.role === "assistant"
+                                                    ? "cyan"
+                                                    : undefined}
+                                            dimColor={message.phase === "thinking"}
+                                        >
                                             {getIconType()}
                                         </Text>
                                     </Box>

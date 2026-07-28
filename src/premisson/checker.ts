@@ -81,6 +81,8 @@ const CONTENT_FIELDS: Record<string, string> = {
   Grep: "pattern",
 };
 
+const FILE_PATH_TOOLS = new Set(["ReadFile", "WriteFile", "EditFile"]);
+
 //从必填字段中提取路径或者执行的命令
 export function extractContent(toolName: string, args: Record<string, unknown>): string {
   //拿到必填字段
@@ -363,7 +365,10 @@ export class PermissionChecker {
       };
     }
     //获取必填参数。专用文件工具优先使用安全解析后的真实路径。
-    const content = resolvedToolPath ?? extractContent(toolName, args);
+    const content = this.normalizeContent(
+      toolName,
+      resolvedToolPath ?? extractContent(toolName, args),
+    );
 
     // Layer 0: plan-mode plan-file write exception.
     // Both WriteFile and EditFile targeting the plan file are allowed so the
@@ -409,6 +414,7 @@ export class PermissionChecker {
     // Layer 4: path sandbox (file tools only).
     //拿到文件路径，这里可能没有
     const filePath = resolvedToolPath ?? String(args.file_path ?? args.path ?? "");
+    let sandboxDecision: Decision | null = null;
     if ((category === "read" || category === "write") && filePath) {
       // denyWrite 检查优先：敏感路径始终拒绝写入
       if (category === "write") {
@@ -418,11 +424,7 @@ export class PermissionChecker {
           return denyDecision;
         }
       }
-      //这次请求的路径是否是项目之外的路径，是的话，直接拒绝
-      const sandboxDecision = this.sandbox.check(filePath);
-      if (sandboxDecision && this.mode !== "bypassPermissions") {
-        return { effect: "ask", reason: sandboxDecision.reason };
-      }
+      sandboxDecision = this.sandbox.check(filePath);
     }
 
     // Layer 4b: 会话级临时放行——检查内存中的 sessionAllowed 集合
@@ -435,6 +437,10 @@ export class PermissionChecker {
     const ruleEffect = this.ruleEngine.evaluate(toolName, content);
     if (ruleEffect) {
       return { effect: ruleEffect, reason: `Permission rule: ${ruleEffect}` };
+    }
+
+    if (sandboxDecision && this.mode !== "bypassPermissions") {
+      return { effect: "ask", reason: sandboxDecision.reason };
     }
 
     // Layer 6: mode matrix.
@@ -450,12 +456,14 @@ export class PermissionChecker {
     this.sessionAllowed.add(`${toolName}:${content}`);
   }
 
-  // Persist a scoped "allow always" rule. The pattern is derived from the
-  // tool's content field (capped at 60 chars) so it allows that specific
-  // command/path family rather than the whole tool. Mirrors Go.
+  // Persist a scoped "allow always" rule for the approved operation.
   allowAlways(toolName: string, args: Record<string, unknown>): void {
     const content = this.resolveContent(toolName, args);
-    const pattern = content.length > 60 ? content.slice(0, 60) + "*" : content + "*";
+    const pattern = FILE_PATH_TOOLS.has(toolName)
+      ? content
+      : content.length > 60
+        ? content.slice(0, 60) + "*"
+        : content + "*";
     this.ruleEngine.appendLocalRule({ tool: toolName, pattern, effect: "allow" });
   }
 
@@ -479,9 +487,17 @@ export class PermissionChecker {
 
   private resolveContent(toolName: string, args: Record<string, unknown>): string {
     try {
-      return this.toolPathResolver?.(toolName, args) ?? extractContent(toolName, args);
+      return this.normalizeContent(
+        toolName,
+        this.toolPathResolver?.(toolName, args) ?? extractContent(toolName, args),
+      );
     } catch {
-      return extractContent(toolName, args);
+      return this.normalizeContent(toolName, extractContent(toolName, args));
     }
+  }
+
+  private normalizeContent(toolName: string, content: string): string {
+    if (!content || !FILE_PATH_TOOLS.has(toolName)) return content;
+    return resolve(this.projectDir, content);
   }
 }

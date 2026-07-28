@@ -109,7 +109,14 @@ export class AgentTool implements Tool {
               "Override the model using a capability tier (fast, standard, strong) " +
               "or a full model ID supported by the active provider.",
           },
-          run_in_background: { type: "boolean", description: "Run in background", default: false },
+          run_in_background: {
+            type: "boolean",
+            description:
+              "Run asynchronously and return a task_id immediately. Prefer true when the parent " +
+              "can continue independent work; use false when the next step requires this result " +
+              "or concurrent edits could conflict.",
+            default: false,
+          },
           team_name: {
             type: "string",
             description:
@@ -157,8 +164,9 @@ Example call shape:
 
 For context_mode="fresh", write a detailed prompt because the sub-agent has no prior conversation context.
 For context_mode="fork", the prompt may refer to the inherited conversation, but should still state the concrete task.
-When tasks are independent, launch multiple sub-agents in parallel by making multiple Agent tool calls in a single response.
-When run_in_background is true, Agent returns a task_id immediately. Use TaskOutput to read the result or TaskStop to cancel it.`;
+Prefer run_in_background=true whenever you can continue useful work without this result. Agent then returns a task_id immediately; use TaskOutput when the result becomes necessary or TaskStop to cancel it.
+Use foreground execution only when your next step immediately depends on the result, the task is very short, or concurrent edits could conflict.
+When tasks are independent, launch multiple background sub-agents in parallel by making multiple Agent tool calls in a single response.`;
     return desc;
   }
 

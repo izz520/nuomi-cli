@@ -62,14 +62,19 @@ test("exposes context mode separately from configured agent types", () => {
       properties: {
         context_mode: { enum: string[]; default: string };
         subagent_type: { enum: string[] };
+        run_in_background: { description: string; default: boolean };
       };
     };
+    description: string;
   };
 
   assert.deepEqual(schema.input_schema.properties.context_mode.enum, ["fresh", "fork"]);
   assert.equal(schema.input_schema.properties.context_mode.default, "fresh");
   assert.ok(schema.input_schema.properties.subagent_type.enum.includes("explore"));
   assert.ok(!schema.input_schema.properties.subagent_type.enum.includes("fork"));
+  assert.equal(schema.input_schema.properties.run_in_background.default, false);
+  assert.match(schema.input_schema.properties.run_in_background.description, /Prefer true/);
+  assert.match(schema.description, /Prefer run_in_background=true/);
 });
 
 test("requires a configured agent type in explicit fresh mode", async () => {

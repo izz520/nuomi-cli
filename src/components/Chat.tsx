@@ -126,9 +126,13 @@ export const messagesReducer = (messages: ChatMessage[], action: MessageAction):
                 messages = messages.slice(0, -1);
             }
 
+            const previousToolGroups = messages
+                .filter((message) => message.phase === "tool_call")
+                .slice(-2);
+
             return [
                 ...messages.filter((message) => message.phase !== "tool_call"),
-                ...messages.filter((message) => message.phase === "tool_call").slice(-2),
+                ...previousToolGroups,
                 {
                     role: "assistant",
                     content: action.title,
@@ -404,8 +408,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
                     }
                     case "tool_group_start": {
                         const groupLabel = describeToolGroup(event.tools)
-                        setWorkingLabel(groupLabel)
-                        setIsWorking(true)
+                        setIsWorking(false)
                         dispatchMessages({
                             type: "tool_group_started",
                             groupId: event.groupId,

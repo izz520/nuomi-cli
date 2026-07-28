@@ -6,3 +6,15 @@
   effect: allow
 - rule: EditFile(/Users/yasol/ai_project/nuomi-cli/src/components/prompt-past*)
   effect: allow
+- rule: EditFile(/Users/yasol/ai_project/nuomi-cli/src/components/MessageList*)
+  effect: allow
+- rule: EditFile(/Users/yasol/ai_project/nuomi-cli/src/components/MessageList*)
+  effect: allow
+- rule: EditFile(/Users/yasol/ai_project/nuomi-cli/src/components/MessageList*)
+  effect: allow
+- rule: EditFile(/Users/yasol/ai_project/nuomi-cli/src/components/MessageList*)
+  effect: allow
+- rule: EditFile(/Users/yasol/ai_project/nuomi-cli/src/components/MessageList*)
+  effect: allow
+- rule: EditFile(/Users/yasol/ai_project/nuomi-cli/src/components/MessageList*)
+  effect: allow
