@@ -12,6 +12,13 @@ import AnthropicClient from "../client/anthorpic.js";
 import OpenAIClient from "../client/openai.js";
 import { buildMessageManager } from "../messageManager/buildMessage.js";
 import type { IMessage } from "../types/messsage.js";
+import {
+  buildWorktreeNotice,
+  createAgentWorktree,
+  inspectWorktree,
+  removeAgentWorktree,
+  type WorktreeResult,
+} from "../worktree/worktree.js";
 
 export const DEFAULT_SUBAGENT_MAX_TURNS = 20;
 
@@ -37,6 +44,7 @@ export interface SpawnSubAgentOptions {
   abortSignal?: AbortSignal;
   background?: boolean;
   clientFactory?: typeof createClient;
+  worktreeSlug?: string;
 }
 
 export class SubAgentRunError extends Error {
@@ -63,7 +71,64 @@ export function buildSubAgentSystemPrompt(
     : basePrompt;
 }
 
-export async function startSubAgent({
+export async function startSubAgent(
+  options: SpawnSubAgentOptions,
+): Promise<string> {
+  // 如果不是worktree，则直接调用runSubAgent
+  if (options.subAgent.isolation !== "worktree") {
+    return runSubAgent(options);
+  }
+  // worktree的唯一表示标识
+  const slug = options.worktreeSlug
+    ?? `${options.subAgent.name}-${Date.now().toString(36)}`;
+  //创建worktree
+  const workspace = createAgentWorktree(slug, options.workDir);
+  //构建Agent信息
+  const isolatedOptions: SpawnSubAgentOptions = {
+    ...options,
+    subAgent: { ...options.subAgent, isolation: undefined },
+    workDir: workspace.path,
+    prompt: `${buildWorktreeNotice(options.workDir, workspace.path)}\n\n${options.prompt}`,
+  };
+
+  try {
+    const output = await runSubAgent(isolatedOptions);
+    return finalizeWorktreeRun(output, workspace);
+  } catch (error) {
+    const suffix = finalizeWorktreeRun("", workspace);
+    if (suffix) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new SubAgentRunError(`${message}\n\n${suffix}`);
+    }
+    throw error;
+  }
+}
+
+function finalizeWorktreeRun(output: string, workspace: WorktreeResult): string {
+  const state = inspectWorktree(
+    workspace.path,
+    workspace.headCommit,
+    workspace.baselineStatus,
+  );
+  if (!state.hasChanges) {
+    removeAgentWorktree(workspace.path, workspace.branch, workspace.gitRoot);
+    return output;
+  }
+
+  const metadata = {
+    path: workspace.path,
+    branch: workspace.branch,
+    baseCommit: workspace.headCommit,
+    headCommit: state.headCommit,
+    dirty: state.dirty,
+  };
+  const notice =
+    "Worktree changes were preserved for parent-agent review and integration:\n" +
+    JSON.stringify(metadata, null, 2);
+  return output ? `${output}\n\n${notice}` : notice;
+}
+
+async function runSubAgent({
   //子Agent的定义
   subAgent,
   // 上下文模式
@@ -126,6 +191,7 @@ export async function startSubAgent({
   const permMode = subAgent.permissionMode ?? "acceptEdits";
   // 新建一个checker
   const checker = new PermissionChecker(workDir, permMode);
+
   if (contextMode === "fork" && !parentMessages) {
     throw new Error("Fork sub-agent requires parent messages");
   }

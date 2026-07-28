@@ -719,7 +719,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
                 //     } else {
                 //         const skills = catalog.list();
                 //         if (skills.length === 0) {
-                //             setMessages((prev) => [...prev, { role: "system", content: "No skills found in .mewcode/skills/." }]);
+                //             setMessages((prev) => [...prev, { role: "system", content: "No skills found in .nuomi/skills/." }]);
                 //         } else {
                 //             const list = skills.map((s) => `  /${s.name} — ${s.description}`).join("\n");
                 //             setMessages((prev) => [...prev, { role: "system", content: `Available skills:\n${list}\n\nType /skills reload to hot-reload skills from disk.` }]);

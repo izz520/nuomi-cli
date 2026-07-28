@@ -21,9 +21,9 @@ export interface InstructionDiscovery {
  * 发现并拼接所有项目和用户级指令文件。
  *
  * 发现顺序（越靠后优先级越高，模型注意力优先关注后面的内容）：
- *  1. 用户全局: ~/.mewcode/MEWCODE.md, ~/.mewcode/AGENTS.md
+ *  1. 用户全局: ~/.nuomi/MEWCODE.md, ~/.nuomi/AGENTS.md
  *  2. 项目: 从 git root 到 workDir 路径上每个目录的 MEWCODE.md 和 AGENTS.md
- *  3. workDir/.mewcode/INSTRUCTIONS.md（兼容旧格式）
+ *  3. workDir/.nuomi/INSTRUCTIONS.md（兼容旧格式）
  *  4. workDir/MEWCODE.local.md（本地私有覆盖）
  *
  * 支持 @include 指令：

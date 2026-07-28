@@ -62,12 +62,12 @@ function serializeConversation(messageManager: MessageManager): TranscriptEntry[
  * 返回团队的 transcript 存储目录。
  */
 function transcriptDir(workDir: string, teamName: string): string {
-  return join(workDir, ".mewcode", "teams", teamName, "transcripts");
+  return join(workDir, ".nuomi", "teams", teamName, "transcripts");
 }
 
 /**
  * 将队友的对话历史持久化到磁盘，用于调试和问题排查。
- * 文件路径为 .mewcode/teams/{team}/transcripts/{agentId}.json。
+ * 文件路径为 .nuomi/teams/{team}/transcripts/{agentId}.json。
  */
 export function saveTranscript(
   workDir: string,

@@ -1,15 +1,10 @@
-// 来源：公众号@小林coding
-// 后端八股网站：xiaolincoding.com
-// Agent网站：xiaolinnote.com
-// 简历模版：jianli.xiaolinnote.com
-
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { load } from "js-yaml";
 import type { Command } from "./commands.js";
 
-// Loads user-defined slash commands from .mewcode/commands/*.md (user then
+// Loads user-defined slash commands from .nuomi/commands/*.md (user then
 // project, so project wins on a name collision). Subdirectories namespace the
 // command name: sub/dir/foo.md → "sub:dir:foo". Mirrors Go LoadUserCommands.
 export function loadUserCommands(workDir: string): Command[] {
@@ -104,7 +99,7 @@ function parseCommandFile(base: string, full: string): Command | null {
     }
   }
   //拿到根据文件名转换的名字
-  //如"/project/.mewcode/commands/Git Tools/Sync Repo.md"变成git-tools:sync-repo
+  //如"/project/.nuomi/commands/Git Tools/Sync Repo.md"变成git-tools:sync-repo
   const name = commandName(base, full);
   //如果名字不存在，则返回空
   if (!name) return null;
@@ -120,7 +115,7 @@ function parseCommandFile(base: string, full: string): Command | null {
 
 //将文件路径换成名字
 function commandName(base: string, full: string): string {
-  //把full = "/project/.mewcode/commands/Git Tools/Sync Repo.md"变成Git Tools/Sync Repo
+  //把full = "/project/.nuomi/commands/Git Tools/Sync Repo.md"变成Git Tools/Sync Repo
   const rel = full.slice(base.length + 1).replace(/\.md$/, "");
   //根据/切割成[Git Tools,Sync Repo]，再循环替换掉” “为-，得到[git-tools,sync-repo]
   return rel

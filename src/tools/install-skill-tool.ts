@@ -13,7 +13,7 @@ function nameFromFrontmatter(content: string): string {
 }
 
 // Installs a skill from a local file path or an https URL into
-// .mewcode/skills/<name>/SKILL.md, then reloads the catalog. Mirrors Go's
+// .nuomi/skills/<name>/SKILL.md, then reloads the catalog. Mirrors Go's
 // InstallSkill tool.
 export class InstallSkillTool implements Tool {
   name = "InstallSkill";

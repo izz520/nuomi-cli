@@ -53,7 +53,7 @@ export class Team {
     this.name = name;
     this.mode = mode;
     this.workDir = workDir;
-    this.mailboxDir = join(workDir, ".mewcode", "teams", name);
+    this.mailboxDir = join(workDir, ".nuomi", "teams", name);
     mkdirSync(this.mailboxDir, { recursive: true });
     this.leadMailbox = new FileMailbox(this.mailboxDir, "lead");
   }

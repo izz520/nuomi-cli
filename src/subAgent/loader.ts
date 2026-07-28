@@ -14,21 +14,21 @@ const PERMISSION_MODES = new Set<PermissionMode>([
 ]);
 
 /**
- * 加载 Agent 定义：内置 → 用户级 (~/.mewcode/agents/) → 项目级 (.mewcode/agents/)。
+ * 加载 Agent 定义：内置 → 用户级 (~/.nuomi/agents/) → 项目级 (.nuomi/agents/)。
  * 后加载的同名定义覆盖先前的，优先级：项目 > 用户 > 内置。
  */
 export function loadSubAgents(workDir: string): SubAgent[] {
   // 拿到内置代理BUILTIN_AGENTS
   const definitions = [...BUILTIN_AGENTS];
 
-  // 用户级目录：~/.mewcode/agents/
+  // 用户级目录：~/.nuomi/agents/
   const home = homedir();
   if (home) {
-    loadDir(join(home, ".mewcode", "agents"), definitions);
+    loadDir(join(home, ".nuomi", "agents"), definitions);
   }
 
-  // 项目级目录：<workDir>/.mewcode/agents/
-  const dirs = [join(workDir, ".mewcode", "agents")];
+  // 项目级目录：<workDir>/.nuomi/agents/
+  const dirs = [join(workDir, ".nuomi", "agents")];
   for (const dir of dirs) {
     loadDir(dir, definitions);
   }

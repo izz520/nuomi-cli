@@ -11,7 +11,7 @@ export const ALL_AGENT_DISALLOWED_TOOLS = new Set([
   "Workflow",
 ]);
 
-// 自定义 Agent（从 .mewcode/agents/ 加载）额外禁用的工具；
+// 自定义 Agent（从 .nuomi/agents/ 加载）额外禁用的工具；
 // 目前与全局列表相同，独立维护以便未来扩展
 export const CUSTOM_AGENT_DISALLOWED_TOOLS = new Set([
   "TaskOutput",
@@ -39,8 +39,6 @@ export const ASYNC_AGENT_ALLOWED_TOOLS = new Set([
   "LoadSkill",
   "SyntheticOutput",
   "ToolSearch",
-  "EnterWorktree",
-  "ExitWorktree",
 ]);
 
 function isMCPTool(name: string): boolean {

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { randomUUID } from "node:crypto";
 import { Box } from "ink";
 import PlatformHeader from "./components/PlatformHeader.js";
 import createClient from "./client/create.js";
@@ -140,6 +141,7 @@ export default function App() {
         } = request;
         // fresh/fork 都使用 subagent_type 对应的文件配置，仅上下文来源不同。
         const subAgent = request.subAgent;
+        const worktreeSlug = `${subAgent.name}-${randomUUID().slice(0, 8)}`;
         // 调用子Agent任务管理器的start函数创建任务
         const task = subAgentTaskManagerRef.current!.createTask({
             label: `${subAgent.name}: ${description}`,
@@ -161,6 +163,7 @@ export default function App() {
                 modelOverride,
                 abortSignal: signal,
                 background,
+                worktreeSlug,
             }),
         });
         // 异步Agent的话，直接先返回一个信息给Agent

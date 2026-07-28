@@ -1,4 +1,14 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import type AnthropicClient from "../client/anthorpic.js";
 import type { StreamEvent, StreamOptions } from "../types/llm.js";
@@ -35,7 +45,7 @@ class FakeClient {
   constructor(
     private readonly events: () => AsyncGenerator<StreamEvent>,
     private readonly systemPrompt = "fake-system",
-  ) {}
+  ) { }
 
   getSystemPrompt(): string {
     return this.systemPrompt;
@@ -212,4 +222,135 @@ test("does not start a sub-agent when already aborted", async () => {
     clientFactory: asClientFactory(fake),
   }), /cancelled/);
   assert.equal(fake.calls, 0);
+});
+
+test("runs an isolated sub-agent in a worktree and cleans up an unchanged run", async () => {
+  const container = mkdtempSync(join(tmpdir(), "nuomi-isolated-agent-"));
+  const root = join(container, "project");
+  mkdirSync(root);
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  writeFileSync(join(root, "README.md"), "base\n");
+  execFileSync("git", ["add", "README.md"], { cwd: root });
+  execFileSync(
+    "git",
+    [
+      "-c", "user.name=Nuomi Test",
+      "-c", "user.email=nuomi@example.invalid",
+      "commit", "-qm", "initial",
+    ],
+    { cwd: root },
+  );
+
+  try {
+    const fake = new FakeClient(async function* () {
+      yield { type: "text_delta", text: "isolated-result" };
+      yield { type: "stream_end", stopReason: "end_turn", usage };
+    });
+    const result = await startSubAgent({
+      subAgent: {
+        name: "editor",
+        description: "Edits in isolation",
+        isolation: "worktree",
+      },
+      prompt: "Inspect the project",
+      parentToolManager: new ToolsManger(),
+      parentProvider: provider,
+      workDir: root,
+      worktreeSlug: "editor_test",
+      clientFactory: asClientFactory(fake),
+    });
+
+    assert.equal(result, "isolated-result");
+    assert.match(JSON.stringify(fake.seenMessages), /git worktree/);
+    assert.ok(!existsSync(
+      join(container, ".nuomi-worktrees", "project", "editor_test"),
+    ));
+    assert.throws(() => {
+      execFileSync("git", ["show-ref", "--verify", "refs/heads/mewcode/editor_test"], {
+        cwd: root,
+        stdio: "ignore",
+      });
+    });
+  } finally {
+    rmSync(container, { recursive: true, force: true });
+  }
+});
+
+test("preserves an isolated worktree and reports metadata when the agent edits files", async () => {
+  const container = mkdtempSync(join(tmpdir(), "nuomi-isolated-edit-"));
+  const root = join(container, "project");
+  mkdirSync(root);
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  writeFileSync(join(root, "README.md"), "base\n");
+  execFileSync("git", ["add", "README.md"], { cwd: root });
+  execFileSync(
+    "git",
+    [
+      "-c", "user.name=Nuomi Test",
+      "-c", "user.email=nuomi@example.invalid",
+      "commit", "-qm", "initial",
+    ],
+    { cwd: root },
+  );
+
+  try {
+    let call = 0;
+    const fake = new FakeClient(async function* () {
+      if (call++ === 0) {
+        yield {
+          type: "tool_call_complete",
+          toolId: "tool-1",
+          toolName: "CreateFile",
+          arguments: {},
+        };
+        yield { type: "stream_end", stopReason: "tool_use", usage };
+        return;
+      }
+      yield { type: "text_delta", text: "edited-result" };
+      yield { type: "stream_end", stopReason: "end_turn", usage };
+    });
+    const tools = new ToolsManger();
+    tools.register({
+      name: "CreateFile",
+      description: "Create a test file",
+      category: "write",
+      schema: () => ({
+        name: "CreateFile",
+        description: "Create a test file",
+        input_schema: { type: "object", properties: {} },
+      }),
+      execute: async (_args, ctx) => {
+        writeFileSync(join(ctx!.workDir, "agent-change.txt"), "changed\n");
+        return { output: "created", isError: false };
+      },
+    });
+
+    const result = await startSubAgent({
+      subAgent: {
+        name: "editor",
+        description: "Edits in isolation",
+        isolation: "worktree",
+      },
+      prompt: "Edit the project",
+      parentToolManager: tools,
+      parentProvider: provider,
+      workDir: root,
+      worktreeSlug: "editor_changed",
+      clientFactory: asClientFactory(fake),
+    });
+
+    const workspacePath = join(
+      container,
+      ".nuomi-worktrees",
+      "project",
+      "editor_changed",
+    );
+    assert.match(result, /edited-result/);
+    assert.match(result, /nuomi\/editor_changed/);
+    assert.match(result, /"dirty": true/);
+    assert.ok(existsSync(join(workspacePath, "agent-change.txt")));
+    assert.ok(!existsSync(join(root, "agent-change.txt")));
+  } finally {
+    rmSync(container, { recursive: true, force: true });
+  }
 });
