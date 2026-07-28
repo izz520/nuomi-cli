@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { HookConfig, MCPServerConfig, ProviderConfig, SandBoxConfig } from '../types/provider.js'
-import { Box, Text, useApp, useInput } from 'ink'
+import { Box, Static, Text, useApp, useInput } from 'ink'
 import MessageList, { ChatMessage, MessagePhase } from './MessageList/index.js'
 import PromptInput from './PromptInput.js'
 import AnthropicClient from '../client/anthorpic.js'
@@ -199,6 +199,20 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
     const { exit } = useApp()
     const isExitingRef = useRef(false)
     const [messages, dispatchMessages] = useReducer(messagesReducer, [])
+    const [committedMessages, setCommittedMessages] = useState<Array<{ id: number; messages: ChatMessage[] }>>([])
+    const nextCommittedMessageIdRef = useRef(0)
+    const messagesRef = useRef(messages)
+    messagesRef.current = messages
+    const commitMessages = useCallback(() => {
+        const stableMessages = messagesRef.current.filter((message) => message.phase !== "tool_call")
+        if (stableMessages.length === 0) return
+        setCommittedMessages((current) => [
+            ...current,
+            { id: ++nextCommittedMessageIdRef.current, messages: stableMessages },
+        ])
+        messagesRef.current = []
+        dispatchMessages({ type: "clear_message" })
+    }, [])
     const [isWorking, setIsWorking] = useState(false)
     const [workingLabel, setWorkingLabel] = useState("Thinking")
     const [showExitHint, setShowExitHint] = useState(false)
@@ -585,8 +599,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
                     dispatchMessages({
                         type: "clear_message",
                     })
-                    // setMessages([]);
-                    // committedIndexRef.current = 0;
+                    setCommittedMessages([])
                     messageManager.clear()
                     break;
                 case "quit":
@@ -817,6 +830,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
 
     const handlePromptSubmit = async (message: string): Promise<void> => {
         if (await handleSlashCommand(message)) return;
+        commitMessages();
         await handleSubmit(message);
     };
 
@@ -1119,6 +1133,15 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
     }, [hookError])
     return (
         <Box flexDirection="column">
+            <Static items={committedMessages}>
+                {(entry) => (
+                    <MessageList
+                        key={entry.id}
+                        messages={entry.messages}
+                        isWorking={false}
+                    />
+                )}
+            </Static>
             <MessageList messages={messages} isWorking={isWorking} workingLabel={workingLabel} />
             <SubAgentStatusList tasks={subagents} />
             {permissionRequest && <PermissionDialog toolName={permissionRequest.toolName} argsSummary={permissionRequest.argsSummary} reason={permissionRequest.reason} onComplete={handleSubmitAsk} />}
