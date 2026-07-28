@@ -1,11 +1,11 @@
-// 来源：公众号@小林coding
-// 后端八股网站：xiaolincoding.com
-// Agent网站：xiaolinnote.com
-// 简历模版：jianli.xiaolinnote.com
-
 import type { Tool, ToolResult } from "../types/tools.js";
 import { strArg } from "../tools/utils.js";
-import type { TeamManager, RunAgent } from "./team.js";
+import {
+  createSessionFromRunAgent,
+  type TeamIdentity,
+  type TeamManager,
+  type RunAgent,
+} from "./team.js";
 
 function obj(props: Record<string, unknown>, required: string[]): Record<string, unknown> {
   return { type: "object", properties: props, required };
@@ -65,7 +65,11 @@ export class SpawnTeammateTool implements Tool {
       return { output: "Error: team, name and task are required", isError: true };
     }
     const t = this.mgr.get(team) ?? this.mgr.create(team);
-    t.spawnTeammate(name, task, this.runAgent);
+    try {
+      t.spawnTeammate(name, task, createSessionFromRunAgent(this.runAgent));
+    } catch (e) {
+      return { output: `Error: ${(e as Error).message}`, isError: true };
+    }
     return {
       output: `Teammate '${name}' spawned in team '${team}'. Its result will arrive on the team channel; keep working and watch for it.`,
       isError: false,
@@ -75,32 +79,41 @@ export class SpawnTeammateTool implements Tool {
 
 export class SendMessageTool implements Tool {
   name = "SendMessage";
-  description = "Send a message to a teammate's mailbox.";
+  description = "Send a message to a teammate, or to the team lead using to='lead'.";
   category = "read" as const;
   system = true;
-  constructor(private mgr: TeamManager) { }
+  constructor(
+    private mgr: TeamManager,
+    private identity?: TeamIdentity,
+  ) { }
   schema(): Record<string, unknown> {
     return {
       name: this.name,
       description: this.description,
       input_schema: obj(
         {
-          team: { type: "string" },
+          ...(!this.identity ? { team: { type: "string" } } : {}),
           to: { type: "string", description: "Teammate name" },
           message: { type: "string" },
         },
-        ["team", "to", "message"]
+        [...(!this.identity ? ["team"] : []), "to", "message"]
       ),
     };
   }
   async execute(args: Record<string, unknown>): Promise<ToolResult> {
-    const team = strArg(args, "team");
+    const team = this.identity?.teamName ?? strArg(args, "team");
     const to = strArg(args, "to");
     const message = strArg(args, "message");
+    if (!team || !to || !message) {
+      return {
+        output: `Error: ${this.identity ? "to and message" : "team, to and message"} are required`,
+        isError: true,
+      };
+    }
     const t = this.mgr.get(team);
     if (!t) return { output: `Team '${team}' not found.`, isError: true };
     try {
-      await t.sendMessage("lead", to, message);
+      await t.sendMessage(this.identity?.memberName ?? "lead", to, message);
     } catch (e) {
       return { output: `Error: ${(e as Error).message}`, isError: true };
     }

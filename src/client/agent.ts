@@ -32,6 +32,7 @@ interface IAgentConfig {
     runtimeContextManager?: RuntimeContextManager
     hookManager?: HookManager
     maxTurns?: number
+    beforeTurn?: () => Promise<string[]> | string[]
     onPermissionRequest?: (
         toolName: string,
         args: Record<string, unknown>,
@@ -60,8 +61,9 @@ export class Agent {
     private runtimeContextManager: RuntimeContextManager | undefined
     private hookManager: HookManager | undefined
     private maxTurns: number | undefined
+    private beforeTurn: IAgentConfig['beforeTurn']
     private onPermissionRequest: IAgentConfig['onPermissionRequest']
-    constructor({ client, messageManager, workDir, abortSignal, permissionCheck, toolManger, toolResultCompactManger, contextWindow, recoveryManager, runtimeContextManager, hookManager, maxTurns, onPermissionRequest }: IAgentConfig) {
+    constructor({ client, messageManager, workDir, abortSignal, permissionCheck, toolManger, toolResultCompactManger, contextWindow, recoveryManager, runtimeContextManager, hookManager, maxTurns, beforeTurn, onPermissionRequest }: IAgentConfig) {
         this.client = client
         this.messageManager = messageManager
         this.toolManger = toolManger
@@ -74,6 +76,7 @@ export class Agent {
         this.runtimeContextManager = runtimeContextManager
         this.hookManager = hookManager
         this.maxTurns = maxTurns
+        this.beforeTurn = beforeTurn
         this.onPermissionRequest = onPermissionRequest
 
     }
@@ -93,6 +96,19 @@ export class Agent {
                 return;
             }
             turnsStarted++;
+            if (this.beforeTurn) {
+                try {
+                    const notifications = await this.beforeTurn();
+                    for (const notification of notifications) {
+                        this.messageManager.addSystemReminder(notification);
+                    }
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    this.messageManager.addSystemReminder(
+                        `beforeTurn notification drain failed: ${message}`,
+                    );
+                }
+            }
             let toolSchemas = this.toolManger.getAllSchemas();
             //拿到指令+长期记忆的prompt
             const runtimeContext = this.runtimeContextManager?.buildMessage() || "";

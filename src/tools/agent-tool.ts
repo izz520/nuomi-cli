@@ -3,7 +3,11 @@ import { strArg, boolArg } from "./utils.js";
 import type { SubAgent } from "../types/subAgent.js";
 import { loadSubAgents } from "../subAgent/loader.js";
 import type { MessageManager } from "../messageManager/message.js";
-import type { TeamManager, RunAgent } from "../teams/team.js";
+import type {
+  TeamAgentSession,
+  TeamIdentity,
+  TeamManager,
+} from "../teams/team.js";
 import type { IMessage } from "../types/messsage.js";
 
 // Fork 子 Agent 的前导标记——用于嵌套 fork 检测
@@ -31,8 +35,12 @@ export class AgentTool implements Tool {
 
   /** 可选：团队管理器，启用 team_name 参数。 */
   private teamManager?: TeamManager;
-  /** 可选：用于生成队友的 RunAgent 回调。 */
-  private teamRunAgent?: RunAgent;
+  /** 可选：按选定角色创建长期队友 session。 */
+  private createTeamAgentSession?: (
+    subAgent: SubAgent,
+    identity: TeamIdentity,
+    modelOverride?: string,
+  ) => TeamAgentSession | Promise<TeamAgentSession>;
 
   private startAgentHandler: (request: SubAgentRunRequest) => Promise<string>;
 
@@ -52,13 +60,19 @@ export class AgentTool implements Tool {
     this.messageManager = messageManager;
   }
 
-  /**
-   * 设置团队管理器和队友运行回调，启用 team_name 参数。
-   * 设置后 Agent 工具可以直接生成队友，无需单独的 SpawnTeammate 工具。
-   */
-  setTeamManager(mgr: TeamManager, runAgent: RunAgent): void {
+  //设置team管理器
+  setTeamManager(
+    mgr: TeamManager,
+    createSession: (
+      subAgent: SubAgent,
+      identity: TeamIdentity,
+      modelOverride?: string,
+    ) => TeamAgentSession | Promise<TeamAgentSession>,
+  ): void {
+    //把传递进来的team管理器存起来
     this.teamManager = mgr;
-    this.teamRunAgent = runAgent;
+    // 把createSession函数存起来
+    this.createTeamAgentSession = createSession;
   }
   // 工具的信息
   schema(): Record<string, unknown> {
@@ -174,12 +188,6 @@ When run_in_background is true, Agent returns a task_id immediately. Use TaskOut
     // 拿到Team的Name
     const teamName = strArg(args, "team_name");
 
-    // Team-member 路径：team_name 优先于 fork/subagent，将 agent 作为
-    // 长驻队友运行，完成后通过 SendMessage / mailbox 通知 lead。
-    if (teamName && this.teamManager && this.teamRunAgent) {
-      return this.runAsTeammate(teamName, description, prompt);
-    }
-
     // fresh 和 fork 都必须选择一个已配置的 Agent 角色。
     if (!subagentType) {
       return {
@@ -194,6 +202,25 @@ When run_in_background is true, Agent returns a task_id immediately. Use TaskOut
         output: `Error: unknown agent type '${subagentType}'. Available: ${this.subAgents.map((d) => d.name).join(", ")}`,
         isError: true,
       };
+    }
+
+    // Team-member 路径：仍须显式选择并验证 subagent_type。团队模式
+    // 使用长期 session，不允许缺少 runtime 接线时静默退化为 one-shot。
+    if (teamName) {
+      if (!this.teamManager || !this.createTeamAgentSession) {
+        return {
+          output: "Error: team agent runtime is not configured.",
+          isError: true,
+        };
+      }
+
+      return this.runAsTeammate(
+        teamName,
+        description,
+        prompt,
+        subAgent,
+        modelOverride || undefined,
+      );
     }
 
     let runRequest: SubAgentRunRequest;
@@ -273,27 +300,48 @@ When run_in_background is true, Agent returns a task_id immediately. Use TaskOut
     teamName: string,
     description: string,
     prompt: string,
+    subAgent: SubAgent,
+    modelOverride?: string,
   ): ToolResult {
+    //从team管理器中查找这个team
     const team = this.teamManager!.get(teamName);
     if (!team) {
+      // team不存在，则返回错误
       return {
         output: `Error: team '${teamName}' not found. Create it first with TeamCreate.`,
         isError: true,
       };
     }
 
-    // 从 description 派生队友名称，去重
-    let memberName = description
-      .replace(/\s+/g, "-")
+    // 从 description 派生 path-safe 队友名称。中文或纯符号描述会
+    // 退回到角色名，避免把非法名称传给 mailbox/worktree。
+    const normalizeMemberName = (value: string): string => value
       .toLowerCase()
-      .slice(0, 30);
+      .replace(/[^a-z0-9_-]+/g, "-")
+      .replace(/^[-_]+|[-_]+$/g, "");
+    //拿到描述名称
+    const descriptionName = normalizeMemberName(description);
+    // 从Agent的名字中拿到角色名称
+    const roleName = normalizeMemberName(subAgent.name) || "teammate";
+    //然后取前64个字符作为member成员名称
+    const base = (descriptionName || `${roleName}-member`).slice(0, 64);
+    let memberName = base;
     let suffix = 2;
-    const base = memberName;
+    //防止名字重复，给名字加一个后缀
     while (team.getMember(memberName)) {
-      memberName = `${base}-${suffix++}`;
+      const marker = `-${suffix++}`;
+      memberName = `${base.slice(0, 64 - marker.length)}${marker}`;
     }
-
-    team.spawnTeammate(memberName, prompt, this.teamRunAgent!);
+    // 调用team的spawnTeammate添加成员
+    team.spawnTeammate(
+      memberName,
+      prompt,
+      (identity) => this.createTeamAgentSession!(
+        subAgent,
+        identity,
+        modelOverride,
+      ),
+    );
     return {
       output: `Teammate '${memberName}' spawned in team '${teamName}' (mode: ${team.mode}). ` +
         `The teammate is now working on the assigned task.`,
@@ -313,11 +361,11 @@ interface SubAgentRunCommon {
 
 export type SubAgentRunRequest =
   | SubAgentRunCommon & {
-      contextMode: "fresh";
-      subAgent: SubAgent;
-    }
+    contextMode: "fresh";
+    subAgent: SubAgent;
+  }
   | SubAgentRunCommon & {
-      contextMode: "fork";
-      subAgent: SubAgent;
-      parentMessages: IMessage[];
-    };
+    contextMode: "fork";
+    subAgent: SubAgent;
+    parentMessages: IMessage[];
+  };

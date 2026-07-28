@@ -266,7 +266,7 @@ test("runs an isolated sub-agent in a worktree and cleans up an unchanged run", 
       join(container, ".nuomi-worktrees", "project", "editor_test"),
     ));
     assert.throws(() => {
-      execFileSync("git", ["show-ref", "--verify", "refs/heads/mewcode/editor_test"], {
+      execFileSync("git", ["show-ref", "--verify", "refs/heads/nuomi/editor_test"], {
         cwd: root,
         stdio: "ignore",
       });

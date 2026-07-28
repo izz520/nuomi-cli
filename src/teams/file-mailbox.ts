@@ -1,8 +1,3 @@
-// 来源：公众号@小林coding
-// 后端八股网站：xiaolincoding.com
-// Agent网站：xiaolinnote.com
-// 简历模版：jianli.xiaolinnote.com
-
 import {
   readFileSync,
   writeFileSync,
@@ -97,18 +92,22 @@ function withLock<T>(filePath: string, fn: () => T): T {
 }
 
 // ---------------------------------------------------------------------------
-
+//消息邮箱
 export class FileMailbox {
   private filePath: string;
   private readStatePath: string;
   private lastReadLines: number;
 
   constructor(dir: string, memberName: string) {
+    //创建目录
     mkdirSync(dir, { recursive: true });
+    // 把当前member成员的jsonl文件夹存起来
     this.filePath = join(dir, `${memberName}.jsonl`);
+    //把读
     this.readStatePath = join(dir, `${memberName}.read`);
     // Persist the read cursor so a restarted / different process resumes from
     // where it left off instead of re-reading the whole mailbox from line 0.
+    //返回当前最新的已读消息条数
     this.lastReadLines = this.loadReadState();
   }
 

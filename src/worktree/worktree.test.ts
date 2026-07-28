@@ -56,7 +56,7 @@ test("creates a uniquely named managed worktree outside the repository", () => {
       dirname(workspace.path),
       join(dirname(workspace.gitRoot), ".nuomi-worktrees", "project"),
     );
-    assert.equal(workspace.branch, "mewcode/agent_123");
+    assert.equal(workspace.branch, "nuomi/agent_123");
     assert.ok(existsSync(join(workspace.path, ".nuomi", "settings.json")));
     assert.ok(!existsSync(join(workspace.path, ".nuomi", "worktrees")));
     assert.deepEqual(inspectWorktree(

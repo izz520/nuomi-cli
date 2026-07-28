@@ -22,16 +22,35 @@ export interface SubAgentTaskContext {
   onProgress: (progress: { turn?: number; lastTool?: string }) => void;
 }
 
-export interface StartSubAgentTaskOptions {
+interface StartSubAgentTaskBaseOptions {
   //UI 显示的任务名称
   label: string;
   //是否为后台任务
   background: boolean;
   //是否跟随父请求取消
   parentSignal?: AbortSignal;
-  //真正执行子 Agent的异步函数
-  runTask: (context: SubAgentTaskContext) => Promise<string>;
 }
+
+type SubAgentTaskRunner = (
+  context: SubAgentTaskContext,
+) => Promise<string>;
+
+/**
+ * `run` is the canonical task runner name. `runTask` remains accepted while
+ * existing callers migrate, but callers must provide at least one runner.
+ */
+export type StartSubAgentTaskOptions = StartSubAgentTaskBaseOptions & (
+  | {
+      run: SubAgentTaskRunner;
+      /** @deprecated Use `run` instead. */
+      runTask?: SubAgentTaskRunner;
+    }
+  | {
+      run?: never;
+      /** @deprecated Use `run` instead. */
+      runTask: SubAgentTaskRunner;
+    }
+);
 
 interface TaskRecord {
   snapshot: SubAgentTaskSnapshot;
@@ -50,6 +69,7 @@ export class SubAgentTaskManager {
 
   // 创建任务
   createTask(options: StartSubAgentTaskOptions): SubAgentTaskSnapshot {
+    const run = options.run ?? options.runTask;
     //生成任务 ID
     const id = `agent-${++this.nextId}`;
     //生成取消控制器
@@ -98,7 +118,7 @@ export class SubAgentTaskManager {
     if (record.snapshot.status === "running") {
       //启动任务
       void Promise.resolve()
-        .then(() => options.runTask({
+        .then(() => run({
           signal: controller.signal,
           onProgress: (progress) => this.updateProgress(id, progress),
         }))

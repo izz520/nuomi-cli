@@ -256,7 +256,7 @@ export function removeAgentWorktree(
   const slug = basename(resolvedPath);
   if (
     dirname(resolvedPath) !== expectedRoot
-    || branch !== `mewcode/${slug}`
+    || branch !== `nuomi/${slug}`
   ) {
     throw new Error("Refusing to remove an unmanaged worktree");
   }
@@ -289,19 +289,23 @@ function readWorktreeStatus(path: string): string {
   }).trim();
 }
 
+// 检查worktree
 export function inspectWorktree(
   path: string,
   headCommit: string,
   baselineStatus = "",
 ): WorktreeState {
   try {
+    //读取worktree的状态
     const status = readWorktreeStatus(path);
+    // 读取worktree的head头
     const currentHead =
       readWorktreeHeadSha(path) ||
       execFileSync("git", ["rev-parse", "HEAD"], {
         cwd: path,
         encoding: "utf-8",
       }).trim();
+    //如果说当前的状态不等于baselineStatus则表示不干净
     const dirty = status !== baselineStatus;
     return {
       dirty,

@@ -39,6 +39,14 @@ import {
     type SubAgentTaskSnapshot,
 } from "./subAgent/task-manager.js";
 import { TaskOutputTool, TaskStopTool } from "./tools/subagent-task-tools.js";
+import { TeamManager } from "./teams/team.js";
+import { createTeamAgentSession } from "./teams/team-agent-session.js";
+import {
+    ListTeamsTool,
+    SendMessageTool,
+    TeamCreateTool,
+    TeamDeleteTool,
+} from "./teams/tools.js";
 
 const workDir = process.cwd()
 const config = loadConfig();
@@ -60,12 +68,17 @@ export default function App() {
     const cmdManagerRef = useRef(createCommandManager());
     const hookError = useRef<Error | null>(null);
     const subAgentTaskManagerRef = useRef<SubAgentTaskManager | null>(null);
+    const teamManagerRef = useRef<TeamManager | null>(null);
     const notifiedTaskIdsRef = useRef(new Set<string>());
     const [subagents, setSubagents] = useState<SubAgentTaskSnapshot[]>([]);
     const skillHostRef = useRef<SkillHost>({
         activateSkill: (name, body) => activeSkillsRef.current.set(name, body),
     });
     const toolResultCompactMangerRef = useRef<ToolResultCompactStateManger | null>(null);
+    const drainTeamNotifications = useCallback(
+        () => teamManagerRef.current?.drainLeads() ?? [],
+        [],
+    );
     if (messageManagerRef.current === null) {
         messageManagerRef.current = new MessageManager();
     }
@@ -78,11 +91,15 @@ export default function App() {
     if (subAgentTaskManagerRef.current === null) {
         subAgentTaskManagerRef.current = new SubAgentTaskManager();
     }
+    if (teamManagerRef.current === null) {
+        teamManagerRef.current = new TeamManager(workDir);
+    }
     if (toolManagerRef.current === null) {
         toolManagerRef.current = createToolManager(
             memManagerRef.current,
             runtimeContextManagerRef.current,
             subAgentTaskManagerRef.current,
+            teamManagerRef.current,
         );
     }
     if (toolResultCompactMangerRef.current === null) {
@@ -124,9 +141,27 @@ export default function App() {
         hookError.current = hookErr
         hookManagerRef.current = new HookManager(config.hooks);
         // 注册Agent的工具
-        toolManagerRef.current?.register(
-            new AgentTool(workDir, startSubAgenthandle, messageManagerRef.current!)
+        const agentTool = new AgentTool(
+            workDir,
+            startSubAgenthandle,
+            messageManagerRef.current!,
         );
+        // 设置agent的team管理器
+        agentTool.setTeamManager(teamManagerRef.current!, (
+            subAgent,
+            identity,
+            modelOverride,
+        ) => createTeamAgentSession({
+            subAgent,
+            identity,
+            provider: selectProvider,
+            parentToolManager: toolManagerRef.current!,
+            teamManager: teamManagerRef.current!,
+            workDir,
+            modelOverride,
+        }));
+        // 工具管理器注册Agent工具
+        toolManagerRef.current?.register(agentTool);
     }, [selectProvider, workDir])
 
 
@@ -251,6 +286,15 @@ export default function App() {
         });
     }, []);
 
+    useEffect(() => {
+        // 当组件卸载的时候，把所有team的成员移除
+        return () => {
+            const manager = teamManagerRef.current;
+            if (!manager) return;
+            void Promise.all(manager.list().map((team) => manager.delete(team.name)));
+        };
+    }, []);
+
     return (
         <Box flexDirection="column">
             <PlatformHeader provider={selectProvider} />
@@ -272,6 +316,7 @@ export default function App() {
                 hookManager={hookManagerRef.current!}
                 hookError={hookError.current}
                 subagents={subagents}
+                drainTeamNotifications={drainTeamNotifications}
 
             />
         </Box>
@@ -282,6 +327,7 @@ const createToolManager = (
     memoryManager: MemoryManager,
     runtimeContextManager: RuntimeContextManager,
     subAgentTaskManager: SubAgentTaskManager,
+    teamManager: TeamManager,
 ): ToolsManger => {
     // 创建工具管理器
     const manager = new ToolsManger();
@@ -309,5 +355,14 @@ const createToolManager = (
     manager.register(new TaskOutputTool(subAgentTaskManager));
     //添加写入子Agent取消任务工具
     manager.register(new TaskStopTool(subAgentTaskManager));
+    // Team members are spawned exclusively through Agent(team_name=...).
+    // 添加创建Team的工具
+    manager.register(new TeamCreateTool(teamManager));
+    // 添加Team发送消息的工具
+    manager.register(new SendMessageTool(teamManager));
+    // 创建查看所有team的工具
+    manager.register(new ListTeamsTool(teamManager));
+    // 创建删除Team的工具
+    manager.register(new TeamDeleteTool(teamManager));
     return manager;
 };

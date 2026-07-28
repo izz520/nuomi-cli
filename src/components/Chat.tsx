@@ -43,6 +43,7 @@ interface IChat {
     hookManager: HookManager
     hookError: Error | null
     subagents: SubAgentTaskSnapshot[]
+    drainTeamNotifications: () => string[]
 }
 
 const FIRST_RESPONSE_TIMEOUT_MS = 60_000
@@ -185,7 +186,7 @@ export const messagesReducer = (messages: ChatMessage[], action: MessageAction):
 
 
 
-const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, toolManager, messageManager, toolResultCompactManger, recoveryManager, runtimeContextManager, memoryManager, selectedProvider, commandManager, hookManager, hookError, subagents }: IChat) => {
+const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, toolManager, messageManager, toolResultCompactManger, recoveryManager, runtimeContextManager, memoryManager, selectedProvider, commandManager, hookManager, hookError, subagents, drainTeamNotifications }: IChat) => {
     // console.log("🚀 ~ Chat ~ instructions:", instructions)
     // console.log("🚀 ~ Chat ~ memReminder:", memReminder)
     const { exit } = useApp()
@@ -324,6 +325,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
             recoveryManager: recoveryManager,
             hookManager: hookManager,
             runtimeContextManager,
+            beforeTurn: drainTeamNotifications,
             // 权限异步等待用户选择后返回结果
             onPermissionRequest: async (toolName, args, decision) => {
                 clearInactivityTimeout()
@@ -466,7 +468,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
                 setIsWorking(false)
             }
         }
-    }, [llmClient, workDir])
+    }, [llmClient, workDir, drainTeamNotifications])
 
     const handleSlashCommand = async (text: string): Promise<boolean> => {
         let parsed = parseCommand(text);
