@@ -173,6 +173,7 @@ export default function App() {
             background,
             modelOverride,
             abortSignal,
+            onActivity,
         } = request;
         // fresh/fork 都使用 subagent_type 对应的文件配置，仅上下文来源不同。
         const subAgent = request.subAgent;
@@ -197,6 +198,7 @@ export default function App() {
                 onProgress,
                 modelOverride,
                 abortSignal: signal,
+                onActivity,
                 background,
                 worktreeSlug,
             }),

@@ -120,6 +120,30 @@ test("uses a dedicated client and returns the sub-agent output", async () => {
   assert.equal(fake.seenSignal, controller.signal);
 });
 
+test("reports child-agent activity while a foreground run is in progress", async () => {
+  const fake = new FakeClient(async function* () {
+    yield { type: "text_delta", text: "working" };
+    yield { type: "stream_end", stopReason: "end_turn", usage };
+  });
+  let activityCount = 0;
+
+  const result = await startSubAgent({
+    subAgent: {
+      name: "general-purpose",
+      description: "test",
+    },
+    prompt: "Do the task",
+    parentToolManager: new ToolsManger(),
+    parentProvider: provider,
+    workDir: process.cwd(),
+    onActivity: () => activityCount++,
+    clientFactory: asClientFactory(fake),
+  });
+
+  assert.equal(result, "working");
+  assert.ok(activityCount > 0);
+});
+
 test("fork mode copies parent messages and still removes the Agent tool", async () => {
   const fake = new FakeClient(async function* () {
     yield { type: "text_delta", text: "fork-result" };

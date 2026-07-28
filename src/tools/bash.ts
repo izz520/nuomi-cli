@@ -157,6 +157,7 @@ export class BashTool implements Tool {
       };
 
       const collect = (target: Buffer[], chunk: Buffer | string) => {
+        ctx.onActivity?.();
         const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         bufferedBytes += buffer.length;
         if (bufferedBytes > MAX_BUFFER) {

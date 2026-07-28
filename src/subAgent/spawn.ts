@@ -39,6 +39,7 @@ export interface SpawnSubAgentOptions {
   parentProvider: ProviderConfig;
   workDir: string;
   onProgress?: (p: { turn?: number; lastTool?: string }) => void,
+  onActivity?: () => void;
   onEvent?: AgentEventSink;
   modelOverride?: string;
   abortSignal?: AbortSignal;
@@ -145,6 +146,7 @@ async function runSubAgent({
   workDir,
   // 更新进度的函数
   onProgress,
+  onActivity,
   // 更新strable事件流
   onEvent,
   // model重写
@@ -216,6 +218,7 @@ async function runSubAgent({
   let turn = 0;
   // 循环消费Agent
   for await (const event of agent.startLoop()) {
+    onActivity?.();
     switch (event.type) {
       case "stream_text":
         output += event.text;

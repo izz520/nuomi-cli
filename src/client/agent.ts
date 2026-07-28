@@ -33,6 +33,7 @@ interface IAgentConfig {
     hookManager?: HookManager
     maxTurns?: number
     beforeTurn?: () => Promise<string[]> | string[]
+    onActivity?: () => void
     onPermissionRequest?: (
         toolName: string,
         args: Record<string, unknown>,
@@ -62,8 +63,9 @@ export class Agent {
     private hookManager: HookManager | undefined
     private maxTurns: number | undefined
     private beforeTurn: IAgentConfig['beforeTurn']
+    private onActivity: IAgentConfig['onActivity']
     private onPermissionRequest: IAgentConfig['onPermissionRequest']
-    constructor({ client, messageManager, workDir, abortSignal, permissionCheck, toolManger, toolResultCompactManger, contextWindow, recoveryManager, runtimeContextManager, hookManager, maxTurns, beforeTurn, onPermissionRequest }: IAgentConfig) {
+    constructor({ client, messageManager, workDir, abortSignal, permissionCheck, toolManger, toolResultCompactManger, contextWindow, recoveryManager, runtimeContextManager, hookManager, maxTurns, beforeTurn, onActivity, onPermissionRequest }: IAgentConfig) {
         this.client = client
         this.messageManager = messageManager
         this.toolManger = toolManger
@@ -77,6 +79,7 @@ export class Agent {
         this.hookManager = hookManager
         this.maxTurns = maxTurns
         this.beforeTurn = beforeTurn
+        this.onActivity = onActivity
         this.onPermissionRequest = onPermissionRequest
 
     }
@@ -352,6 +355,7 @@ export class Agent {
         const taskManger = new ToolExecutManger(this.toolManger, {
             workDir: this.workDir,
             abortSignal: this.abortSignal,
+            onActivity: this.onActivity,
         })
         for (const tl of cateTools) {
             //判断工具分类

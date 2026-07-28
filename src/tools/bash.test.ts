@@ -46,3 +46,18 @@ test("BashTool reports an ordinary non-zero exit as an error", async () => {
     assert.equal(result.isError, true);
     assert.match(result.output, /Exit code 3/);
 });
+
+test("BashTool reports activity when a running command produces output", async () => {
+    const tool = new BashTool();
+    let activityCount = 0;
+    const result = await tool.execute(
+        { command: "printf first; sleep 0.02; printf second" },
+        {
+            workDir: process.cwd(),
+            onActivity: () => activityCount++,
+        },
+    );
+
+    assert.equal(result.isError, false);
+    assert.ok(activityCount > 0);
+});

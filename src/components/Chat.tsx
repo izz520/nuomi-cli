@@ -47,7 +47,10 @@ interface IChat {
 }
 
 const FIRST_RESPONSE_TIMEOUT_MS = 60_000
-const NO_PROGRESS_TIMEOUT_MS = 120_000
+// Long-running agents and commands are expected. Only stop a request after ten
+// minutes without any parent, sub-agent, or command-output activity.
+const NO_PROGRESS_TIMEOUT_MINUTES = 10
+const NO_PROGRESS_TIMEOUT_MS = NO_PROGRESS_TIMEOUT_MINUTES * 60_000
 type SystemEvent = "exit"
 
 const MEMORY_TOOL_NAMES = new Set(["ReadMemory", "WriteMemory", "EditMemory"]);
@@ -281,7 +284,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
                 dispatchMessages({
                     type: "append_assistant",
                     phase: "error",
-                    content: "No progress for 120 seconds. Request stopped; please retry.",
+                    content: `No progress for ${NO_PROGRESS_TIMEOUT_MINUTES} minutes. Request stopped; please retry.`,
                     merge: false
                 })
             }, NO_PROGRESS_TIMEOUT_MS)
@@ -326,6 +329,7 @@ const Chat = ({ llmClient, workDir, sandboxConfig, mcpServers, contextWindow, to
             hookManager: hookManager,
             runtimeContextManager,
             beforeTurn: drainTeamNotifications,
+            onActivity: armInactivityTimeout,
             // 权限异步等待用户选择后返回结果
             onPermissionRequest: async (toolName, args, decision) => {
                 clearInactivityTimeout()

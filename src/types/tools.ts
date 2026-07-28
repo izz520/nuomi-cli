@@ -8,6 +8,12 @@ export interface ToolResult {
 export interface ToolContext {
     workDir: string;
     abortSignal?: AbortSignal;
+    /**
+     * Report observable work performed inside a long-running tool.
+     * The parent request uses this heartbeat to distinguish active work from
+     * a genuinely stalled tool call.
+     */
+    onActivity?: () => void;
 }
 
 export interface Tool {

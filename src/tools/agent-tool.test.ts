@@ -15,6 +15,7 @@ test("passes structured run options and the abort signal to the spawn handler", 
     return "done";
   });
   const controller = new AbortController();
+  const onActivity = () => undefined;
 
   const result = await tool.execute({
     description: "Inspect files",
@@ -25,6 +26,7 @@ test("passes structured run options and the abort signal to the spawn handler", 
   }, {
     workDir: process.cwd(),
     abortSignal: controller.signal,
+    onActivity,
   });
 
   assert.deepEqual(result, { output: "done", isError: false });
@@ -35,6 +37,7 @@ test("passes structured run options and the abort signal to the spawn handler", 
   assert.equal(request?.background, true);
   assert.equal(request?.modelOverride, "fast");
   assert.equal(request?.abortSignal, controller.signal);
+  assert.equal(request?.onActivity, onActivity);
 });
 
 test("converts spawn failures into an error tool result", async () => {

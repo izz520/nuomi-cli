@@ -248,6 +248,7 @@ When run_in_background is true, Agent returns a task_id immediately. Use TaskOut
         background: background || !!subAgent.background,
         modelOverride: modelOverride || undefined,
         abortSignal: ctx?.abortSignal,
+        onActivity: ctx?.onActivity,
       };
     } else {
       runRequest = {
@@ -258,6 +259,7 @@ When run_in_background is true, Agent returns a task_id immediately. Use TaskOut
         background: background || !!subAgent.background,
         modelOverride: modelOverride || undefined,
         abortSignal: ctx?.abortSignal,
+        onActivity: ctx?.onActivity,
       };
     }
 
@@ -357,6 +359,7 @@ interface SubAgentRunCommon {
   background: boolean;
   modelOverride?: string;
   abortSignal?: AbortSignal;
+  onActivity?: () => void;
 }
 
 export type SubAgentRunRequest =
