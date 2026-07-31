@@ -18,6 +18,7 @@ import createClient from "./create.js";
 import OpenAIClient from "./openai.js";
 import { ToolExecutManger } from "./tool-execut-manger.js";
 import { EventName, HookManager } from "../hooks/hooks.js";
+import { prepareToolResultForConversation } from "../compact/persisted-tool-output.js";
 
 interface IAgentConfig {
     client: AnthropicClient | OpenAIClient,
@@ -43,8 +44,8 @@ interface IAgentConfig {
 // value, then attempt a bounded number of multi-turn recoveries. Mirrors Go.
 const MAX_TOKENS_CEILING = 64000;
 const MAX_OUTPUT_TOKENS_RECOVERIES = 3;
-// Hard per-result cap on tool output stored back into the conversation. The
-// toolresult budget handles spilling separately; this is a final safety cap.
+// Results above this size are persisted losslessly and replaced with a
+// ReadToolResult reference in the conversation.
 const MAX_OUTPUT_CHARS = 10000;
 export class Agent {
     private messageManager: MessageManager
@@ -309,10 +310,12 @@ export class Agent {
                     if (r.type === "tool_result") {
                         toolResults.push({
                             toolUseId: r.toolId,
-                            content:
-                                r.output.length > MAX_OUTPUT_CHARS
-                                    ? r.output.slice(0, MAX_OUTPUT_CHARS) + "\n… (output truncated)"
-                                    : r.output,
+                            content: prepareToolResultForConversation(
+                                this.workDir,
+                                r.toolId,
+                                r.output,
+                                MAX_OUTPUT_CHARS,
+                            ),
                             isError: r.isError,
                         });
                     }

@@ -17,6 +17,7 @@ import { ToolsManger } from "./tools/register.js";
 import { RecoveryManager } from "./compact/recovery.js";
 import { ToolResultCompactStateManger } from "./compact/state.js";
 import { ReadFile } from "./tools/read-file.js";
+import { ReadToolResult } from "./tools/read-tool-result.js";
 import { WriteFileTool } from "./tools/write-file.js";
 import { EditFileTool } from "./tools/edit-file.js";
 import { GlobTool } from "./tools/glob.js";
@@ -56,7 +57,7 @@ export default function App() {
     // console.log("🚀 ~ App ~ config:", config)
     const [llmClient, setLLMClient] = useState<AnthropicClient | OpenAIClient>();
     //当前使用的Provider
-    const [selectProvider, setSelectProvider] = useState<ProviderConfig>(config.providers[0])
+    const [selectProvider, setSelectProvider] = useState<ProviderConfig>(config.providers[1])
     const memManagerRef = useRef<MemoryManager | null>(null)
     const runtimeContextManagerRef = useRef<RuntimeContextManager | null>(null)
     const messageManagerRef = useRef<MessageManager | null>(null);
@@ -335,6 +336,7 @@ const createToolManager = (
     const manager = new ToolsManger();
     //添加常规读工具
     manager.register(new ReadFile());
+    manager.register(new ReadToolResult());
     //添加常规写工具
     manager.register(new WriteFileTool());
     //添加常规编辑工具

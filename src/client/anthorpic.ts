@@ -5,6 +5,7 @@ import { IMessage } from "../types/messsage.js";
 import { MessageManager } from "../messageManager/message.js";
 import writeLog from "../utils/writeLog.js";
 import { convortAnthropicMessage } from "./convort-message.js";
+import { CacheControlEphemeral } from "@anthropic-ai/sdk/resources";
 
 class AnthropicClient {
     private client: Anthropic;
@@ -58,7 +59,10 @@ class AnthropicClient {
             system: this.systemPrompt,
             messages: convrtMessage,
             stream: true,
-            tools: formatTools
+            tools: formatTools,
+            cache_control: {
+                type: "ephemeral"
+            } as CacheControlEphemeral
         }
         // writeLog(params)
         //发送消息

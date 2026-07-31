@@ -212,6 +212,7 @@ async function compactMessage(
     //如果有压缩工具结果后的消息，就用压缩后的，没有就用原始的
     const estimationMessages = (compactToolResultMessage && compactToolResultMessage.length > 0) ? compactToolResultMessage : messageManager.getMessages();
     //计算保留原始消息的消息列表开始的index
+    //计算token大于10000或者有5条消息的时候的下标
     const keepStart = computeKeepStartIndex(estimationMessages);
     //index小于0，或者小于最小保留条数
     if (keepStart <= 0 || keepStart < MIN_COMPACT_PREFIX) {

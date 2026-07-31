@@ -26,6 +26,7 @@ export const CUSTOM_AGENT_DISALLOWED_TOOLS = new Set([
 // 异步（后台）Agent 只允许使用这些工具
 export const ASYNC_AGENT_ALLOWED_TOOLS = new Set([
   "ReadFile",
+  "ReadToolResult",
   "WebSearch",
   "TodoWrite",
   "Grep",
@@ -40,6 +41,10 @@ export const ASYNC_AGENT_ALLOWED_TOOLS = new Set([
   "SyntheticOutput",
   "ToolSearch",
 ]);
+
+// Recovery tools remain available through an agent's positive tool whitelist.
+// An explicit disallowed_tools entry still takes precedence.
+const INTERNAL_RECOVERY_TOOLS = new Set(["ReadToolResult"]);
 
 function isMCPTool(name: string): boolean {
   return name.startsWith("mcp__");
@@ -104,7 +109,7 @@ export function filterToolsForAgent(
     }
 
     // Layer 6: 定义级白名单交集
-    if (hasWhitelist && !allowed.has(name)) {
+    if (hasWhitelist && !allowed.has(name) && !INTERNAL_RECOVERY_TOOLS.has(name)) {
       continue;
     }
 
